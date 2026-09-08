@@ -23,3 +23,7 @@ venv/
 
 # OS
 .DS_Store
+
+# Raw data caches (DuckDB/Parquet stores) — never committed
+store/
+data_delivery/

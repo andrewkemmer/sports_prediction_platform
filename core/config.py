@@ -62,6 +62,20 @@ DEFAULT_ALLOWLISTED_FAMILIES = (
     "model_history",
     "model_version_history",
     "features_metadata",
+    # NFL families use the sport-prefixed names from the reference
+    # repo's real data_delivery filenames (nfl-backend artifacts).
+    "nfl_moneyline_json",
+    "nfl_calibration",
+    "nfl_predictions_history",
+    "nfl_power_rankings",
+    "nfl_markets",
+    "nfl_markets_monitor",
+    "nfl_qb_matchup",
+    "nfl_feature_json",
+    "nfl_model_monitor",
+    "nfl_shap_game",
+    "nfl_feature_drift",
+    "nfl_feature_coverage",
 )
 
 

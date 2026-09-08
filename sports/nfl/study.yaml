@@ -1,0 +1,114 @@
+# NFL study configuration (Phase 3).
+#
+# Frozen geometry: warmup, fold cadence, OOF rules, and minimum training
+# rows come from HERE — never from the run window (NFL_START_DATE /
+# NFL_END_DATE scope ingestion/serving only). No dynamic optimization is
+# permitted in Phase 3; changes require a reviewed study-config commit.
+#
+# The decided-game universe: regular-season (REG) history with 2018 as the
+# warmup-only season and 2019+ as the OOF population (reference-frozen).
+# The current season's schedule is used for predictions. Training history
+# is NEVER derived from NFL_START_DATE / NFL_END_DATE.
+
+sport: nfl
+kind: production
+study_id: nfl-production-phase3
+
+# Decided-universe eligibility (reference-frozen).
+warmup_seasons: [2018]          # trailing priors only — never OOF-evaluated
+oof_first_season: 2019          # OOF population starts here
+
+# Trailing windows (reference-frozen semantics).
+windows:
+  form_window: 4                # net pts/game window
+  winpct_window: 12             # trailing win% window
+  ypp_window: 5                 # net yards/play window
+  ewm_halflife: 2               # decaying-window halflife (games)
+  opp_adj_window: 6             # opponent-adjusted trailing margin window
+  pace_window: 4                # trailing plays/min window (games)
+
+# Elo parameters (reference-frozen).
+elo:
+  prior: 1500.0
+  k: 32.0
+  scale: 400.0
+
+# Venue / schedule facts.
+venue:
+  prime_time_hour: 17           # nflverse gametime is ET; >= this = evening
+
+warmup:
+  min_history_days: 0           # NFL history is season-based, not day-based
+  min_games_per_team: 1         # a team's first game still has a real Elo prior
+
+walk_forward:
+  min_train_games: 50           # a fold below this many training rows is skipped
+  step_days: 7                  # fold cadence: 7-calendar-day validation windows
+  embargo_days: 0               # validation windows are date-keyed, non-overlapping
+  min_val_games: 1              # no arbitrary minimum — every legitimate window is a fold
+  max_eval_folds: 0             # 0 = full history
+
+oof:
+  require_prob_strictly_inside: true   # home_win_prob_model in (0,1)
+  undecided_rows_excluded: true        # NaN home_win rows never score metrics
+  require_unique_game_id: true
+  require_decided_only: true           # home_win non-null on every OOF row
+  min_training_rows: 50                # minimum training rows per fold (recheck)
+
+training:
+  ensemble_members: [xgboost, lightgbm, logistic, randomforest, mlp]
+  retrain_cadence_days: 7      # fold geometry (not a scheduler)
+  min_train_days_warmup: 0
+  random_seed: 42              # explicit seeds for every stochastic component
+  ensemble_weights:            # fallback priors; replaced by adaptive OOF weights
+    xgboost: 0.25
+    lightgbm: 0.25
+    logistic: 0.20
+    randomforest: 0.15
+    mlp: 0.15
+  adaptive_weight_metric: auc
+  adaptive_weight_temperature: 0.015
+  adaptive_weight_floor: 0.05
+  adaptive_weight_cap: 0.45
+
+# Distribution grids (run engine: margin/total discrete-normal PMFs).
+market:
+  spread_grid: [-14, 14]
+  total_grid: [24, 66]
+  half_stop_lines: [-0.5, 0.5]
+  margin_pmf_max: 30
+  total_pmf_max: 70
+  margin_sigma: 13.5
+  total_sigma: 10.0
+  sigma_floor_margin: 9.0
+  sigma_cap_margin: 20.0
+  sigma_floor_total: 7.0
+  sigma_cap_total: 16.0
+  p_tie_max: 0.02
+  fixed_totals: [38, 42, 46, 50, 54]
+  canonical_spreads: [3]
+
+retention:
+  frontend_days: 10            # 10-day rolling deletion for frontend artifacts
+
+# Frontend artifact families (delivery allowlist).
+allowlisted_families:
+  - nfl_moneyline_json
+  - nfl_calibration
+  - nfl_predictions_history
+  - nfl_power_rankings
+  - nfl_markets
+  - nfl_markets_monitor
+  - nfl_qb_matchup
+  - nfl_feature_json
+  - nfl_model_monitor
+  - nfl_shap_game
+  - nfl_feature_drift
+  - nfl_feature_coverage
+
+# NOT frontend-consumed: OOF stores are backend evaluation data — written
+# under data_delivery/models/ and retention-exempt.
+retention_exempt_families:
+  - nfl_oof_store
+  - nfl_fold_table
+  - nfl_pipeline_summary
