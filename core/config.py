@@ -34,6 +34,10 @@ FRONTEND_ARTIFACT_RETENTION_DAYS = 10
 #: trusted on the dashboard (guarded by warmup rules, not fabricated).
 DEFAULT_MIN_GAMES_PER_TEAM = 10
 
+#: The agreed initial MLB warmup default (Phase 2): 30 completed games per
+#: team before any model-derived display is trusted for MLB.
+MLB_MIN_GAMES_PER_TEAM = 30
+
 #: Days of prior history a sport requires before its first walk-forward
 #: prediction is emitted.
 DEFAULT_WARMUP_DAYS = 30
@@ -222,7 +226,10 @@ def default_sport_configs() -> dict[str, SportConfig]:
     """The default per-sport registry (participant role per Phase 0 decisions)."""
     return {
         "mlb": SportConfig(key="mlb", label="MLB", emoji="\u26be",
-                           participant_role="pitcher", has_run_engine=True),
+                           participant_role="pitcher", has_run_engine=True,
+                           warmup=WarmupConfig(
+                               min_history_days=DEFAULT_WARMUP_DAYS,
+                               min_games_per_team=MLB_MIN_GAMES_PER_TEAM)),
         "nfl": SportConfig(key="nfl", label="NFL", emoji="\U0001f3c8",
                            participant_role="qb", has_run_engine=True),
         "nhl": SportConfig(key="nhl", label="NHL", emoji="\U0001f3c8",

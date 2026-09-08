@@ -1,0 +1,68 @@
+# MLB study configuration (Phase 2).
+#
+# Frozen geometry: warmup, fold cadence, OOF rules, and minimum training
+# rows come from HERE — never from the run window (MLB_START_DATE /
+# MLB_END_DATE scope ingestion/serving only). No dynamic optimization is
+# permitted in Phase 2; changes require a reviewed study-config commit.
+#
+# warmup.min_games_per_team is the agreed initial MLB default: 30 completed
+# games per team before any model-derived display is trusted.
+
+sport: mlb
+kind: production
+study_id: mlb-production-phase2
+
+# Data start: the earliest date the MLB store is allowed to backfill
+# Statcast history from (the reference repo trained on 2024+ seasons).
+data_start_date: "20240101"
+
+warmup:
+  min_history_days: 30        # days of league history before first prediction
+  min_games_per_team: 30      # agreed initial MLB default (completed games)
+
+walk_forward:
+  min_train_games: 200        # a fold below this many training rows is skipped
+  step_days: 7                # fold cadence: weekly validation windows
+  embargo_days: 1             # exclude the day immediately before the test date
+  min_val_games: 40           # MIN_VAL_FOLD_GAMES convention from the reference
+  max_eval_folds: 0           # 0 = full history
+
+oof:
+  # Point-in-time contract for out-of-fold predictions (core.oof rules).
+  require_prob_strictly_inside: true   # home_win_prob_model in (0,1)
+  undecided_rows_excluded: true        # NaN home_win rows never score metrics
+  require_unique_game_id: true
+  require_decided_only: true           # home_win non-null on every OOF row
+  min_training_rows: 200               # minimum training rows per fold (recheck)
+
+training:
+  # Phase 2 freezes the model stack; optimization belongs to a later phase.
+  ensemble_members: [xgboost, lightgbm, logistic, randomforest, mlp]
+  retrain_cadence_days: 7     # fold geometry (not a scheduler)
+  min_train_days_warmup: 30   # skip folds starting before this much history
+
+retention:
+  frontend_days: 10           # 10-day rolling deletion for frontend artifacts
+
+# Frontend artifact families GitPython may push (delivery allowlist).
+allowlisted_families:
+  - todays_games
+  - power_rankings
+  - calibration
+  - model_monitor
+  - markets
+  - markets_monitor
+  - shap_game
+  - predictions_history
+  - feature_drift
+  - feature_coverage
+  - rolling_brier
+  - model_history
+  - model_version_history
+  - features_metadata
+
+# NOT frontend-consumed (Phase 0 audit): run_engine_oof stays out of the
+# retention set and the delivery allowlist — backend monitor rebuild/harness
+# only. It is written to the sink but is retention_exempt.
+retention_exempt_families:
+  - run_engine_oof

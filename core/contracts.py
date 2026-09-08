@@ -72,12 +72,18 @@ class FeatureContract:
                 return f
         raise KeyError(f"feature {name!r} not in {self.sport} contract")
 
-    def to_metadata_json(self, generated_for: str = "") -> dict:
-        """Serialize to the reference ``features_metadata_*.json`` shape."""
+    def to_metadata_json(self, generated_for: str = "",
+                         warnings: list | None = None) -> dict:
+        """Serialize to the reference ``features_metadata_*.json`` shape.
+
+        ``warnings`` carries the run's explicit unavailable-feature markers
+        (never silently dropped columns): entirely-unavailable sources are
+        routed per the missing-data policy and listed here verbatim.
+        """
         return {
             "generated_for": generated_for,
             "n_features": len(self.features),
-            "warnings": [],
+            "warnings": list(warnings or []),
             "features": {
                 f.name: {
                     "name": f.name,

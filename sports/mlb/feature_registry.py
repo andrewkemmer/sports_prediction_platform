@@ -1,0 +1,616 @@
+"""Feature registry and controlled derivation factory.
+
+Features are DECLARED in a registry (name, summary, formula, source, window,
+units, direction) and derived by a controlled factory — no ad-hoc column
+creation in the pipeline. The registry doubles as the ``features_metadata``
+artifact source (dashboard tooltips), and ``FEATURE_COLS`` /
+``RUN_FEATURE_COLS`` are the frozen moneyline and run-engine views from the
+reference repo's 2026-09-07 production state (the Experiment #2 E/F
+replacement included: the 6 S-family baselines removed, the 8 exp2
+candidates shipped).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from core.contracts import FeatureContract, FeatureSpec
+from core.validation import ValidationError, require_columns
+
+
+# ---------------------------------------------------------------------------
+# Frozen moneyline feature view (training.FEATURE_COLS as of 2026-09-07)
+# ---------------------------------------------------------------------------
+
+FEATURE_COLS: tuple[str, ...] = (
+    # 1. Baseline
+    "is_home",
+    # 2-4. Core pre-game diffs
+    "win_pct_diff", "elo_diff", "rest_days_diff",
+    # 5. Starting pitcher diffs (season-to-date + last-5-start)
+    "sp_era_diff", "sp_era_5g_diff",
+    # 9-11. SP stuff diffs (trailing 3-start)
+    "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff",
+    # SP xwOBA diffs
+    "sp_xwoba_vs_l_diff",
+    # 12-14. Lineup wOBA diffs
+    "lineup_woba_mean_diff", "lineup_woba_top3_diff", "lineup_woba_std_diff",
+    # 15. Team rolling wOBA diff
+    "woba_30g_diff",
+    # 16-18. Bullpen diffs
+    "bullpen_whip_diff", "bullpen_whip_3g_diff", "bullpen_pitches_diff",
+    # 19-21. Team contact form diffs (trailing 15g)
+    "team_barrel_diff", "team_hardhit_diff", "team_exitvelo_diff",
+    # 22. Lineup handedness matchup advantage
+    "lineup_handedness_matchup_advantage",
+    # 23. Travel fatigue
+    "travel_fatigue_diff",
+    # 24. Closer availability
+    "closer_availability_diff",
+    # 25. Dome neutral flag
+    "dome_is_neutral",
+    # 26. Park factor
+    "park_factor_slug_diff",
+    # 27-28. Weather-driven interactions (real observations only)
+    "wind_advantage_flyball_factor", "air_density_velocity_boost",
+    # 29-32. Derived interaction features
+    "bullpen_meltdown_risk", "pitcher_regression_indicator",
+    "lineup_depth_multiplier", "ace_efficiency_factor",
+    # 33-56. Raw per-side inputs
+    "home_elo", "away_elo",
+    "home_win_pct", "away_win_pct",
+    "sp_era_home", "sp_era_away",
+    "sp_k9_home", "sp_k9_away",
+    "sp_xwoba_home", "sp_xwoba_away",
+    "lineup_woba_mean_home", "lineup_woba_mean_away",
+    "lineup_woba_top3_home", "lineup_woba_top3_away",
+    "woba_30g_home", "woba_30g_away",
+    "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+    "bullpen_whip_3g_home", "bullpen_whip_3g_away",
+    "team_barrel_15g_home", "team_barrel_15g_away",
+    "team_exitvelo_15g_home", "team_exitvelo_15g_away",
+    # 63. Run-engine expected-run margin (OOF on the moneyline's own folds)
+    "run_margin_diff",
+    # 60-67. Experiment #2 matchup candidates (shipped 2026-09-07)
+    "exp2_centered_k_diff", "exp2_cat_k_fastball_diff",
+    "exp2_cat_k_breaking_diff", "exp2_cat_k_offspeed_diff",
+    "exp2_cat_xwoba_fastball_diff", "exp2_cat_xwoba_breaking_diff",
+    "exp2_cat_xwoba_offspeed_diff", "exp2_cat_platoon_k_fastball_diff",
+)
+
+# The 5 engineered composites (kept in FEATURE_COLS, dropped from the run
+# engine's lambda view) plus the moneyline-only matchup terms.
+_RUN_EXTRA_EXCLUSIONS: frozenset[str] = frozenset({
+    "lineup_handedness_matchup_advantage",
+    "bullpen_meltdown_risk",          # pitches_diff x whip_diff
+    "pitcher_regression_indicator",   # velo_diff x era_diff
+    "lineup_depth_multiplier",        # woba_mean_diff x top3_diff
+    "ace_efficiency_factor",          # k9_diff x whiff_diff
+    "run_margin_diff",                # lambda-derived moneyline-side feature
+})
+
+# The one sanctioned _diff survivor in the run-engine view: a PARK context
+# multiplier, not a matchup gap.
+RUN_DIFF_EXCEPTION = "park_factor_slug_diff"
+
+# FROZEN run-engine lambda view (2026-09-07): byte-identical to the
+# reference repo's RUN_LAMBDA_VIEW_FROZEN (53 kept / 14 dropped). The
+# moneyline list may change without run-engine sign-off; this view is pinned.
+RUN_FEATURE_COLS: tuple[str, ...] = (
+    "is_home", "win_pct_diff", "elo_diff", "rest_days_diff",
+    "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
+    "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
+    "sp_xwoba_vs_l_diff", "lineup_woba_mean_diff", "lineup_woba_top3_diff",
+    "lineup_woba_std_diff", "woba_30g_diff", "bullpen_whip_diff",
+    "bullpen_whip_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
+    "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
+    "closer_availability_diff", "dome_is_neutral", "park_factor_slug_diff",
+    "wind_advantage_flyball_factor", "air_density_velocity_boost",
+    "home_elo", "away_elo", "home_win_pct", "away_win_pct",
+    "sp_era_home", "sp_era_away", "sp_k9_home", "sp_k9_away",
+    "sp_xwoba_home", "sp_xwoba_away",
+    "lineup_woba_mean_home", "lineup_woba_mean_away",
+    "lineup_woba_top3_home", "lineup_woba_top3_away",
+    "woba_30g_home", "woba_30g_away",
+    "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+    "bullpen_whip_3g_home", "bullpen_whip_3g_away",
+    "team_barrel_15g_home", "team_barrel_15g_away",
+    "team_exitvelo_15g_home", "team_exitvelo_15g_away",
+)
+
+RUN_DROPPED_COLS: tuple[str, ...] = (
+    "lineup_handedness_matchup_advantage", "bullpen_meltdown_risk",
+    "pitcher_regression_indicator", "lineup_depth_multiplier",
+    "ace_efficiency_factor", "run_margin_diff",
+    "exp2_centered_k_diff", "exp2_cat_k_fastball_diff",
+    "exp2_cat_k_breaking_diff", "exp2_cat_k_offspeed_diff",
+    "exp2_cat_xwoba_fastball_diff", "exp2_cat_xwoba_breaking_diff",
+    "exp2_cat_xwoba_offspeed_diff", "exp2_cat_platoon_k_fastball_diff",
+)
+
+assert len(RUN_FEATURE_COLS) == 53 and len(RUN_DROPPED_COLS) == 14
+
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FeatureEntry:
+    """One declared feature in the MLB registry."""
+
+    name: str
+    summary: str
+    definition: str
+    formula: str
+    source: str
+    window: str
+    units: str
+    direction: str
+    members: tuple[str, ...] = ()
+    tooltip: str = ""
+
+
+def _spec(e: FeatureEntry) -> FeatureSpec:
+    return FeatureSpec(
+        name=e.name, summary=e.summary, definition=e.definition,
+        formula=e.formula, source=e.source, window=e.window, units=e.units,
+        direction=e.direction, members=e.members, tooltip=e.tooltip)
+
+
+# The declared registry. Every FEATURE_COLS member must appear here (checked
+# by build_feature_contract at import/validation time).
+_REGISTRY: tuple[FeatureEntry, ...] = (
+    FeatureEntry(
+        "is_home", "Home-field anchor",
+        "1 when the row's home team is batting at home", "1",
+        "static", "n/a", "binary", "positive"),
+    FeatureEntry(
+        "win_pct_diff", "Win% gap (smoothed)",
+        "Smoothed home win% minus away win%", "home_win_pct - away_win_pct",
+        "derived", "season", "pct", "positive"),
+    FeatureEntry(
+        "elo_diff", "Elo gap",
+        "Home Elo minus away Elo (pre-game, season-reverted)",
+        "home_elo - away_elo", "derived", "season", "points", "positive"),
+    FeatureEntry(
+        "rest_days_diff", "Rest-day gap",
+        "Home rest days minus away rest days (capped at 6)",
+        "rest_days_home - rest_days_away", "schedule", "game-to-game",
+        "days", "positive"),
+    FeatureEntry(
+        "sp_era_diff", "SP season ERA gap",
+        "Home starter season-to-date ERA minus away",
+        "sp_era_home - sp_era_away", "statcast", "season-to-date",
+        "era", "negative"),
+    FeatureEntry(
+        "sp_era_5g_diff", "SP last-5-start ERA gap",
+        "Home starter last-5-start ERA minus away",
+        "sp_era_5g_home - sp_era_5g_away", "statcast", "5 starts",
+        "era", "negative"),
+    FeatureEntry(
+        "sp_fbvelo_diff", "SP fastball velo gap (3-start)",
+        "Home starter last-3-start fastball velocity minus away",
+        "sp_fbvelo_3g_home - sp_fbvelo_3g_away", "statcast", "3 starts",
+        "mph", "positive"),
+    FeatureEntry(
+        "sp_fbpct_diff", "SP fastball rate gap (3-start)",
+        "Home starter last-3-start fastball share minus away",
+        "sp_fbpct_3g_home - sp_fbpct_3g_away", "statcast", "3 starts",
+        "share", "positive"),
+    FeatureEntry(
+        "sp_whiff_diff", "SP whiff rate gap (3-start)",
+        "Home starter last-3-start whiff rate minus away",
+        "sp_whiff_3g_home - sp_whiff_3g_away", "statcast", "3 starts",
+        "rate", "positive"),
+    FeatureEntry(
+        "sp_xwoba_vs_l_diff", "SP xwOBA-vs-L gap",
+        "Home starter season xwOBA allowed vs lefties minus away",
+        "sp_xwoba_vs_l_home - sp_xwoba_vs_l_away", "statcast",
+        "season-to-date", "wOBA", "negative"),
+    FeatureEntry(
+        "lineup_woba_mean_diff", "Lineup wOBA gap (top-9 mean)",
+        "Home expected-lineup wOBA mean minus away",
+        "lineup_woba_mean_home - lineup_woba_mean_away", "statcast",
+        "30 games", "wOBA", "positive"),
+    FeatureEntry(
+        "lineup_woba_top3_diff", "Lineup wOBA gap (top-3)",
+        "Home expected top-3 wOBA minus away",
+        "lineup_woba_top3_home - lineup_woba_top3_away", "statcast",
+        "30 games", "wOBA", "positive"),
+    FeatureEntry(
+        "lineup_woba_std_diff", "Lineup wOBA spread gap",
+        "Home lineup wOBA stddev minus away",
+        "lineup_woba_std_home - lineup_woba_std_away", "statcast",
+        "30 games", "wOBA", "n/a"),
+    FeatureEntry(
+        "woba_30g_diff", "Team wOBA gap (30g)",
+        "Home team 30-game wOBA minus away",
+        "woba_30g_home - woba_30g_away", "statcast", "30 games",
+        "wOBA", "positive"),
+    FeatureEntry(
+        "bullpen_whip_diff", "Bullpen WHIP gap (10g)",
+        "Home bullpen 10-game WHIP minus away",
+        "bullpen_whip_10g_home - bullpen_whip_10g_away", "statcast",
+        "10 games", "whip", "negative"),
+    FeatureEntry(
+        "bullpen_whip_3g_diff", "Bullpen WHIP gap (3g)",
+        "Home bullpen 3-game WHIP minus away",
+        "bullpen_whip_3g_home - bullpen_whip_3g_away", "statcast",
+        "3 games", "whip", "negative"),
+    FeatureEntry(
+        "bullpen_pitches_diff", "Bullpen workload gap (3d)",
+        "Home bullpen 3-day pitch count minus away",
+        "bullpen_pitches_3d_home - bullpen_pitches_3d_away", "statcast",
+        "3 days", "pitches", "negative"),
+    FeatureEntry(
+        "team_barrel_diff", "Barrel% gap (15g)",
+        "Home team 15-game barrel rate minus away",
+        "team_barrel_15g_home - team_barrel_15g_away", "statcast",
+        "15 games", "rate", "positive"),
+    FeatureEntry(
+        "team_hardhit_diff", "Hard-hit% gap (15g)",
+        "Home team 15-game hard-hit rate minus away",
+        "team_hardhit_15g_home - team_hardhit_15g_away", "statcast",
+        "15 games", "rate", "positive"),
+    FeatureEntry(
+        "team_exitvelo_diff", "Exit velo gap (15g)",
+        "Home team 15-game avg exit velocity minus away",
+        "team_exitvelo_15g_home - team_exitvelo_15g_away", "statcast",
+        "15 games", "mph", "positive"),
+    FeatureEntry(
+        "lineup_handedness_matchup_advantage",
+        "Handedness matchup advantage",
+        "Each lineup's OPS vs tonight's opposing starter hand, differenced",
+        "lineup_ops_vs_starter_hand_home - ..._away", "statcast",
+        "30 games", "OPS", "positive",
+        members=("moneyline",)),
+    FeatureEntry(
+        "travel_fatigue_diff", "Travel fatigue gap",
+        "Time zones crossed in the last 3 days, home minus away",
+        "time_zones_crossed_last_3d_home - ..._away", "schedule",
+        "3 days", "zones", "negative"),
+    FeatureEntry(
+        "closer_availability_diff", "Closer availability gap",
+        "Home closer availability minus away (1 = available)",
+        "closer_available_home - closer_available_away", "statcast",
+        "1 day", "binary", "positive"),
+    FeatureEntry(
+        "dome_is_neutral", "Dome neutral flag",
+        "1 when the venue roof is closed/dome (weather neutralized)",
+        "roof_state in ('dome','closed')", "statsapi", "game", "binary",
+        "n/a"),
+    FeatureEntry(
+        "park_factor_slug_diff", "Park factor gap",
+        "Slug-based park factor, home minus away context",
+        "park_factor_slug_home - park_factor_slug_away", "static",
+        "n/a", "multiplier", "positive"),
+    FeatureEntry(
+        "wind_advantage_flyball_factor",
+        "Wind advantage (fly-ball)",
+        "Outward wind boosts fly-ball carry at the venue (real "
+        "Open-Meteo observation; NULL when unobserved)",
+        "f(wind vector, venue orientation)", "open-meteo", "game",
+        "multiplier", "positive"),
+    FeatureEntry(
+        "air_density_velocity_boost",
+        "Air-density boost",
+        "Thin-air/high-temp density boost to carry (real observation; "
+        "NULL when unobserved)",
+        "f(temp, elevation, humidity)", "open-meteo", "game",
+        "multiplier", "positive"),
+    FeatureEntry(
+        "bullpen_meltdown_risk", "Bullpen meltdown risk",
+        "Workload x effectiveness interaction",
+        "bullpen_pitches_diff * bullpen_whip_diff", "derived", "3 days",
+        "interaction", "negative", members=("run_engine_excluded",)),
+    FeatureEntry(
+        "pitcher_regression_indicator", "Pitcher regression indicator",
+        "Velo x ERA regression interaction",
+        "sp_fbvelo_diff * sp_era_diff", "derived", "3 starts",
+        "interaction", "n/a", members=("run_engine_excluded",)),
+    FeatureEntry(
+        "lineup_depth_multiplier", "Lineup depth multiplier",
+        "Lineup depth interaction",
+        "lineup_woba_mean_diff * lineup_woba_top3_diff", "derived",
+        "30 games", "interaction", "positive",
+        members=("run_engine_excluded",)),
+    FeatureEntry(
+        "ace_efficiency_factor", "Ace efficiency factor",
+        "Strikeout x whiff interaction",
+        "sp_k9_diff * sp_whiff_diff", "derived", "season",
+        "interaction", "positive", members=("run_engine_excluded",)),
+    FeatureEntry(
+        "home_elo", "Home Elo", "Home team pre-game Elo (season-reverted)",
+        "elo", "derived", "season", "points", "positive"),
+    FeatureEntry(
+        "away_elo", "Away Elo", "Away team pre-game Elo (season-reverted)",
+        "elo", "derived", "season", "points", "negative"),
+    FeatureEntry(
+        "home_win_pct", "Home win%", "Home smoothed season win%",
+        "wins/(wins+losses) shrunk to .500", "derived", "season",
+        "pct", "positive"),
+    FeatureEntry(
+        "away_win_pct", "Away win%", "Away smoothed season win%",
+        "wins/(wins+losses) shrunk to .500", "derived", "season",
+        "pct", "negative"),
+    FeatureEntry(
+        "sp_era_home", "Home SP ERA", "Home starter season-to-date ERA",
+        "9*ER/IP", "statcast", "season-to-date", "era", "negative"),
+    FeatureEntry(
+        "sp_era_away", "Away SP ERA", "Away starter season-to-date ERA",
+        "9*ER/IP", "statcast", "season-to-date", "era", "negative"),
+    FeatureEntry(
+        "sp_k9_home", "Home SP K/9", "Home starter season-to-date K/9",
+        "9*K/IP", "statcast", "season-to-date", "k9", "positive"),
+    FeatureEntry(
+        "sp_k9_away", "Away SP K/9", "Away starter season-to-date K/9",
+        "9*K/IP", "statcast", "season-to-date", "k9", "positive"),
+    FeatureEntry(
+        "sp_xwoba_home", "Home SP xwOBA allowed",
+        "Home starter trailing xwOBA allowed",
+        "avg(xwOBA)", "statcast", "30 games", "wOBA", "negative"),
+    FeatureEntry(
+        "sp_xwoba_away", "Away SP xwOBA allowed",
+        "Away starter trailing xwOBA allowed",
+        "avg(xwOBA)", "statcast", "30 games", "wOBA", "negative"),
+    FeatureEntry(
+        "lineup_woba_mean_home", "Home lineup wOBA",
+        "Home expected top-9 wOBA mean", "mean(shrunk wOBA)",
+        "statcast", "30 games", "wOBA", "positive"),
+    FeatureEntry(
+        "lineup_woba_mean_away", "Away lineup wOBA",
+        "Away expected top-9 wOBA mean", "mean(shrunk wOBA)",
+        "statcast", "30 games", "wOBA", "negative"),
+    FeatureEntry(
+        "lineup_woba_top3_home", "Home top-3 wOBA",
+        "Home expected top-3 wOBA", "mean(shrunk wOBA | top3)",
+        "statcast", "30 games", "wOBA", "positive"),
+    FeatureEntry(
+        "lineup_woba_top3_away", "Away top-3 wOBA",
+        "Away expected top-3 wOBA", "mean(shrunk wOBA | top3)",
+        "statcast", "30 games", "wOBA", "negative"),
+    FeatureEntry(
+        "woba_30g_home", "Home team wOBA (30g)",
+        "Home team trailing 30-game wOBA", "wOBA per PA",
+        "statcast", "30 games", "wOBA", "positive"),
+    FeatureEntry(
+        "woba_30g_away", "Away team wOBA (30g)",
+        "Away team trailing 30-game wOBA", "wOBA per PA",
+        "statcast", "30 games", "wOBA", "negative"),
+    FeatureEntry(
+        "bullpen_whip_10g_home", "Home bullpen WHIP (10g)",
+        "Home bullpen trailing 10-game WHIP", "(BB+H)/IP",
+        "statcast", "10 games", "whip", "negative"),
+    FeatureEntry(
+        "bullpen_whip_10g_away", "Away bullpen WHIP (10g)",
+        "Away bullpen trailing 10-game WHIP", "(BB+H)/IP",
+        "statcast", "10 games", "whip", "negative"),
+    FeatureEntry(
+        "bullpen_whip_3g_home", "Home bullpen WHIP (3g)",
+        "Home bullpen trailing 3-game WHIP", "(BB+H)/IP",
+        "statcast", "3 games", "whip", "negative"),
+    FeatureEntry(
+        "bullpen_whip_3g_away", "Away bullpen WHIP (3g)",
+        "Away bullpen trailing 3-game WHIP", "(BB+H)/IP",
+        "statcast", "3 games", "whip", "negative"),
+    FeatureEntry(
+        "team_barrel_15g_home", "Home barrel% (15g)",
+        "Home team trailing 15-game barrel rate", "barrels/BBE",
+        "statcast", "15 games", "rate", "positive"),
+    FeatureEntry(
+        "team_barrel_15g_away", "Away barrel% (15g)",
+        "Away team trailing 15-game barrel rate", "barrels/BBE",
+        "statcast", "15 games", "rate", "negative"),
+    FeatureEntry(
+        "team_exitvelo_15g_home", "Home exit velo (15g)",
+        "Home team trailing 15-game avg exit velocity", "avg(launch_speed)",
+        "statcast", "15 games", "mph", "positive"),
+    FeatureEntry(
+        "team_exitvelo_15g_away", "Away exit velo (15g)",
+        "Away team trailing 15-game avg exit velocity", "avg(launch_speed)",
+        "statcast", "15 games", "mph", "negative"),
+    FeatureEntry(
+        "run_margin_diff", "Run-engine margin (OOF)",
+        "lambda_home - lambda_away from the run engine's per-side Poisson "
+        "models, computed OUT-OF-FOLD on the moneyline's own fold split",
+        "oof margin", "run_engine", "per fold", "runs", "positive",
+        members=("moneyline",)),
+    FeatureEntry(
+        "exp2_centered_k_diff", "Exp2 centered K gap",
+        "League-centered strikeout-rate matchup gap",
+        "candidate C (centered K)", "statcast", "season-to-date",
+        "rate", "n/a", members=("exp2",)),
+    FeatureEntry(
+        "exp2_cat_k_fastball_diff", "Exp2 fastball K gap",
+        "Pitch-category strikeout-rate gap (fastball)",
+        "candidate C (cat K, fastball)", "statcast", "season-to-date",
+        "rate", "n/a", members=("exp2",)),
+    FeatureEntry(
+        "exp2_cat_k_breaking_diff", "Exp2 breaking K gap",
+        "Pitch-category strikeout-rate gap (breaking)",
+        "candidate C (cat K, breaking)", "statcast", "season-to-date",
+        "rate", "n/a", members=("exp2",)),
+    FeatureEntry(
+        "exp2_cat_k_offspeed_diff", "Exp2 offspeed K gap",
+        "Pitch-category strikeout-rate gap (offspeed)",
+        "candidate C (cat K, offspeed)", "statcast", "season-to-date",
+        "rate", "n/a", members=("exp2",)),
+    FeatureEntry(
+        "exp2_cat_xwoba_fastball_diff", "Exp2 fastball xwOBA gap",
+        "Pitch-category xwOBA gap (fastball)",
+        "candidate D (cat xwOBA, fastball)", "statcast", "season-to-date",
+        "wOBA", "n/a", members=("exp2",)),
+    FeatureEntry(
+        "exp2_cat_xwoba_breaking_diff", "Exp2 breaking xwOBA gap",
+        "Pitch-category xwOBA gap (breaking)",
+        "candidate D (cat xwOBA, breaking)", "statcast", "season-to-date",
+        "wOBA", "n/a", members=("exp2",)),
+    FeatureEntry(
+        "exp2_cat_xwoba_offspeed_diff", "Exp2 offspeed xwOBA gap",
+        "Pitch-category xwOBA gap (offspeed)",
+        "candidate D (cat xwOBA, offspeed)", "statcast", "season-to-date",
+        "wOBA", "n/a", members=("exp2",)),
+    FeatureEntry(
+        "exp2_cat_platoon_k_fastball_diff",
+        "Exp2 platoon fastball K gap",
+        "Platoon-adjusted fastball strikeout-rate gap",
+        "candidate E (platoon K, fastball)", "statcast", "season-to-date",
+        "rate", "n/a", members=("exp2",)),
+)
+
+
+class FeatureRegistryError(ValueError):
+    """Raised when the feature registry is inconsistent with the frozen views."""
+
+
+def registry_entries() -> tuple[FeatureEntry, ...]:
+    """All declared registry entries."""
+    return _REGISTRY
+
+
+def build_feature_contract(version: str = "phase2") -> FeatureContract:
+    """Build the shared FeatureContract from the MLB registry."""
+    return FeatureContract(
+        sport="mlb", version=version,
+        features=tuple(_spec(e) for e in _REGISTRY))
+
+
+def validate_registry() -> None:
+    """Every FEATURE_COLS member must be declared in the registry (and vice
+    versa: the registry must not declare names outside the frozen views).
+    Raises FeatureRegistryError on drift."""
+    declared = {e.name for e in _REGISTRY}
+    missing = [f for f in FEATURE_COLS if f not in declared]
+    if missing:
+        raise FeatureRegistryError(
+            f"FEATURE_COLS members missing from the registry: {missing}")
+    extra = sorted(declared - set(FEATURE_COLS))
+    if extra:
+        raise FeatureRegistryError(
+            f"registry declares names outside FEATURE_COLS: {extra}")
+
+
+# ---------------------------------------------------------------------------
+# Controlled derivation factory
+# ---------------------------------------------------------------------------
+
+# Raw home/away inputs each diff is computed from. The factory recomputes
+# every diff from the RAW columns — presence of a diff column is never
+# evidence its values are current.
+_DIFF_INPUTS: dict[str, tuple[str, str]] = {
+    "win_pct_diff": ("home_win_pct", "away_win_pct"),
+    "elo_diff": ("home_elo", "away_elo"),
+    "rest_days_diff": ("rest_days_home", "rest_days_away"),
+    "sp_era_diff": ("sp_era_home", "sp_era_away"),
+    "sp_era_5g_diff": ("sp_era_5g_home", "sp_era_5g_away"),
+    "sp_k9_diff": ("sp_k9_home", "sp_k9_away"),
+    "sp_k9_5g_diff": ("sp_k9_5g_home", "sp_k9_5g_away"),
+    "sp_fbvelo_diff": ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
+    "sp_fbpct_diff": ("sp_fbpct_3g_home", "sp_fbpct_3g_away"),
+    "sp_whiff_diff": ("sp_whiff_3g_home", "sp_whiff_3g_away"),
+    # sp_xwoba_30g_* does not exist in the Phase-2 factory output; the
+    # factory's sp_xwoba_* IS the trailing-30-game pitcher xwOBA (its 30g
+    # rolling table). Map to the produced name rather than shipping NaN.
+    "sp_xwoba_diff": ("sp_xwoba_home", "sp_xwoba_away"),
+    "sp_xwoba_vs_l_diff": ("sp_xwoba_vs_l_home", "sp_xwoba_vs_l_away"),
+    "lineup_woba_mean_diff": ("lineup_woba_mean_home", "lineup_woba_mean_away"),
+    "lineup_woba_top3_diff": ("lineup_woba_top3_home", "lineup_woba_top3_away"),
+    "lineup_woba_std_diff": ("lineup_woba_std_home", "lineup_woba_std_away"),
+    "woba_30g_diff": ("woba_30g_home", "woba_30g_away"),
+    "bullpen_whip_diff": ("bullpen_whip_10g_home", "bullpen_whip_10g_away"),
+    "bullpen_whip_3g_diff": ("bullpen_whip_3g_home", "bullpen_whip_3g_away"),
+    "bullpen_pitches_diff": ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
+    "team_barrel_diff": ("team_barrel_15g_home", "team_barrel_15g_away"),
+    "team_hardhit_diff": ("team_hardhit_15g_home", "team_hardhit_15g_away"),
+    "team_exitvelo_diff": ("team_exitvelo_15g_home", "team_exitvelo_15g_away"),
+    "travel_fatigue_diff": ("time_zones_crossed_last_3d_home",
+                            "time_zones_crossed_last_3d_away"),
+    "closer_availability_diff": ("closer_available_home", "closer_available_away"),
+    "park_factor_slug_diff": ("park_factor_slug_home", "park_factor_slug_away"),
+}
+
+_COMPOSITES: dict[str, tuple[str, str]] = {
+    "bullpen_meltdown_risk": ("bullpen_pitches_diff", "bullpen_whip_diff"),
+    "pitcher_regression_indicator": ("sp_fbvelo_diff", "sp_era_diff"),
+    "lineup_depth_multiplier": ("lineup_woba_mean_diff", "lineup_woba_top3_diff"),
+    "ace_efficiency_factor": ("sp_k9_diff", "sp_whiff_diff"),
+}
+
+
+def derive_diff_features(df, *, require_records: bool = False):
+    """Recompute every diff feature from the raw home/away columns.
+
+    Idempotent: diffs are always recomputed from the RAW inputs, never
+    trusted from a pre-built export. With ``require_records=True`` a missing
+    win_pct input raises (official results should already be applied).
+    """
+    import numpy as np
+    import pandas as pd
+    if require_records and not {"home_wins", "home_losses"} <= set(df.columns):
+        raise ValidationError(
+            "require_records=True but record columns are missing — apply "
+            "official results before deriving diffs")
+    out = df.copy()
+    for diff, (h, a) in _DIFF_INPUTS.items():
+        if h in out.columns and a in out.columns:
+            out[diff] = pd.to_numeric(out[h], errors="coerce") \
+                - pd.to_numeric(out[a], errors="coerce")
+        else:
+            out[diff] = np.nan
+    # Handedness matchup advantage: each lineup's OPS vs the opposing
+    # starter's hand, differenced.
+    if {"lineup_ops_vs_starter_hand_home", "lineup_ops_vs_starter_hand_away"} \
+            <= set(out.columns):
+        out["lineup_handedness_matchup_advantage"] = (
+            pd.to_numeric(out["lineup_ops_vs_starter_hand_home"],
+                          errors="coerce")
+            - pd.to_numeric(out["lineup_ops_vs_starter_hand_away"],
+                            errors="coerce"))
+    else:
+        out["lineup_handedness_matchup_advantage"] = np.nan
+    # Composites derive from their (already recomputed) diff inputs.
+    for comp, (d1, d2) in _COMPOSITES.items():
+        if d1 in out.columns and d2 in out.columns:
+            out[comp] = pd.to_numeric(out[d1], errors="coerce") \
+                * pd.to_numeric(out[d2], errors="coerce")
+        else:
+            out[comp] = np.nan
+    # is_home anchor + dome flag defaults (environment context).
+    if "is_home" not in out.columns:
+        out["is_home"] = 1.0
+    if "dome_is_neutral" not in out.columns:
+        out["dome_is_neutral"] = 0.0
+    return out
+
+
+def ensure_feature_columns(df, feature_cols: tuple[str, ...] = FEATURE_COLS):
+    """Guarantee every requested feature column exists (missing -> NaN).
+
+    Never fabricates values — missing observations ship as true NULLs (tree
+    models route NaN natively; zero/median fills fabricated signal).
+    """
+    import numpy as np
+    out = df.copy()
+    for c in feature_cols:
+        if c not in out.columns:
+            out[c] = np.nan
+    return out
+
+
+def build_candidate_frame(game_df, *, include_run_view: bool = True):
+    """The wide point-in-time candidate frame.
+
+    Composes: Elo/records enrichment (PIT), diff recomputation, feature
+    column guarantee. Returns (frame, feature_cols) where feature_cols is
+    the frozen moneyline view.
+    """
+    from sports.mlb.frames import enrich_elo_and_records
+    df = enrich_elo_and_records(game_df, rename_team_woba=True)
+    df = derive_diff_features(df)
+    df = ensure_feature_columns(df, FEATURE_COLS)
+    if include_run_view:
+        df = ensure_feature_columns(df, RUN_FEATURE_COLS)
+    validate_registry()
+    return df, FEATURE_COLS
