@@ -1,0 +1,316 @@
+{
+  "source": "Read-only reference repository sports_prediction_model (andrewkemmer-sports_prediction_model-5dce619), mlb-backend/data_delivery/ production artifacts dated 2026-09-07. Extracted verbatim from real artifact headers/keys; NOT remembered schemas.",
+  "extracted_from_commit": "5dce619",
+  "artifacts": {
+    "todays_games": {
+      "file": "todays_games_20260907.csv",
+      "ext": "csv",
+      "columns": [
+        "game_id", "game_date", "start_time_utc", "home_team", "away_team",
+        "home_record", "away_record", "home_win_prob_model",
+        "away_win_prob_model", "edge_home", "edge_away", "sp_name_home",
+        "sp_name_away", "sp_era_home", "sp_k9_home", "sp_era_away",
+        "sp_k9_away", "venue", "model_pick", "home_win", "home_score",
+        "away_score", "total_runs", "game_state", "game_status_detail"
+      ],
+      "dtypes": {
+        "game_id": "str", "game_date": "date(YYYY-MM-DD)",
+        "start_time_utc": "iso8601-with-offset", "home_team": "str",
+        "away_team": "str", "home_record": "str (W-L)",
+        "away_record": "str (W-L)", "home_win_prob_model": "float",
+        "away_win_prob_model": "float", "edge_home": "float",
+        "edge_away": "float", "sp_name_home": "str|null",
+        "sp_name_away": "str|null", "sp_era_home": "float|null",
+        "sp_k9_home": "float|null", "sp_era_away": "float|null",
+        "sp_k9_away": "float|null", "venue": "str", "model_pick": "str",
+        "home_win": "float (0.0/1.0, empty until final)",
+        "home_score": "int|null", "away_score": "int|null",
+        "total_runs": "int|null", "game_state": "str (post|preview|live)",
+        "game_status_detail": "str (Final|...)"
+      },
+      "frontend_required": [
+        "game_id", "game_date", "start_time_utc", "home_team", "away_team",
+        "home_record", "away_record", "home_win_prob_model",
+        "away_win_prob_model", "sp_name_home", "sp_name_away", "sp_era_home",
+        "sp_k9_home", "sp_era_away", "sp_k9_away", "venue", "model_pick",
+        "home_win", "home_score", "away_score", "game_state",
+        "game_status_detail"
+      ]
+    },
+    "power_rankings": {
+      "file": "power_rankings_20260907.csv",
+      "ext": "csv",
+      "columns": [
+        "rank", "team", "team_name", "elo", "wins", "losses", "record",
+        "pct", "run_diff", "l10", "home_pct", "away_pct"
+      ],
+      "dtypes": {
+        "rank": "int", "team": "str (abbrev)", "team_name": "str",
+        "elo": "float", "wins": "int", "losses": "int",
+        "record": "str (W-L)", "pct": "float", "run_diff": "int",
+        "l10": "str", "home_pct": "float", "away_pct": "float"
+      },
+      "frontend_required": ["all"]
+    },
+    "run_engine_markets": {
+      "file": "run_engine_markets_20260907.csv",
+      "ext": "csv",
+      "columns": [
+        "game_pk", "game_date", "kind", "home_expected_runs",
+        "away_expected_runs", "alpha_home", "alpha_away",
+        "p_home_win_derived", "p_away_win_derived", "home_score",
+        "away_score", "total_runs", "ml_win_prob", "agreement_conflict",
+        "p_over_6_5", "p_over_7_0", "p_over_7_5", "p_over_8_0",
+        "p_over_8_5", "p_over_9_0", "p_over_9_5", "p_over_10_0",
+        "p_over_10_5", "p_over_11_0", "p_over_11_5", "p_over_12_0",
+        "p_over_12_5", "p_push_6_5", "p_push_7_0", "p_push_7_5",
+        "p_push_8_0", "p_push_8_5", "p_push_9_0", "p_push_9_5",
+        "p_push_10_0", "p_push_10_5", "p_push_11_0", "p_push_11_5",
+        "p_push_12_0", "p_push_12_5", "p_under_6_5", "p_under_7_0",
+        "p_under_7_5", "p_under_8_0", "p_under_8_5", "p_under_9_0",
+        "p_under_9_5", "p_under_10_0", "p_under_10_5", "p_under_11_0",
+        "p_under_11_5", "p_under_12_0", "p_under_12_5",
+        "p_home_cover_0_5", "p_home_cover_1_5", "p_home_cover_2_5",
+        "p_home_cover_3_5", "p_rl_1_0_home", "p_rl_1_0_push",
+        "p_rl_1_0_away", "p_rl_1_5_home", "p_rl_1_5_push",
+        "p_rl_1_5_away", "p_rl_2_0_home", "p_rl_2_0_push",
+        "p_rl_2_0_away", "p_rl_2_5_home", "p_rl_2_5_push",
+        "p_rl_2_5_away", "p_rl_3_0_home", "p_rl_3_0_push",
+        "p_rl_3_0_away", "p_rl_3_5_home", "p_rl_3_5_push",
+        "p_rl_3_5_away", "p_rl_4_0_home", "p_rl_4_0_push",
+        "p_rl_4_0_away"
+      ],
+      "dtypes": {
+        "game_pk": "int", "game_date": "date(YYYY-MM-DD)",
+        "kind": "str (oof|slate)", "home_expected_runs": "float",
+        "away_expected_runs": "float", "alpha_home": "float",
+        "alpha_away": "float", "p_home_win_derived": "float",
+        "p_away_win_derived": "float", "home_score": "int|null",
+        "away_score": "int|null", "total_runs": "int|null",
+        "ml_win_prob": "float|null", "agreement_conflict": "bool",
+        "p_over_<line>": "float (lines 6.5..12.5, 0.5 steps, 13 lines)",
+        "p_push_<line>": "float (0.0 on half-point lines)",
+        "p_under_<line>": "float",
+        "p_home_cover_<line>": "float (lines 0.5..3.5 half-points)",
+        "p_rl_<line>_{home,push,away}": "float (lines 1.0..4.0, 0.5 steps)"
+      },
+      "frontend_required": ["all"]
+    },
+    "run_engine_markets_meta": {
+      "file": "run_engine_markets_20260907.meta.json",
+      "ext": "json",
+      "keys": [
+        "n_draws", "seed", "holdout_cutoff", "n_pre", "n_holdout",
+        "line_grid", "alpha_home", "year_effect_home", "alpha_away",
+        "year_effect_away", "phase2_single_alpha",
+        "fit_check_single_alpha", "fit_check_alpha_lambda",
+        "variance_check", "mc_meta", "market_derived_moneyline",
+        "market_derived_moneyline_holdout", "market_over_7_5",
+        "market_over_7_5_holdout", "market_over_8_5",
+        "market_over_8_5_holdout", "market_over_9_5",
+        "market_over_9_5_holdout", "market_home_cover_1_5",
+        "market_home_cover_1_5_holdout", "market_home_cover_2_5",
+        "market_home_cover_2_5_holdout", "agreement_vs_moneyline",
+        "k_edge", "agreement_slate"
+      ],
+      "subkeys": {
+        "line_grid": ["totals", "run_lines", "run_lines_full",
+                      "run_lines_whole", "total_ref_lines", "run_ref_lines"]
+      },
+      "dtypes": {
+        "n_draws": "int", "seed": "int", "holdout_cutoff": "date",
+        "n_pre": "int", "n_holdout": "int", "line_grid": "dict of lists"
+      },
+      "frontend_required": ["line_grid"]
+    },
+    "calibration": {
+      "file": "calibration_20260907.json",
+      "ext": "json",
+      "keys": [
+        "date", "n_games", "trained_at", "metrics", "calibration_buckets",
+        "calibration", "daily", "league_total", "evening_games_league"
+      ],
+      "subkeys": {
+        "metrics": ["auc", "brier", "logloss", "ece", "brier_calibrated",
+                    "logloss_calibrated", "ece_calibrated"],
+        "calibration": ["method", "params", "metrics_raw",
+                        "metrics_calibrated"],
+        "calibration_buckets[]": ["bucket", "mean_predicted",
+                                  "mean_actual", "count", "gap"],
+        "daily[]": ["date", "n_games", "wins", "losses", "metrics",
+                    "buckets", "buckets_calibrated"]
+      },
+      "dtypes": {
+        "date": "str (YYYY-MM-DD)", "n_games": "int", "trained_at": "str",
+        "league_total": "int", "evening_games_league": "int"
+      },
+      "frontend_required": ["all"]
+    },
+    "model_monitor": {
+      "file": "model_monitor_20260907.json",
+      "ext": "json",
+      "keys": [
+        "date", "version", "last_retrained", "next_retrain", "metrics",
+        "drift_summary", "feature_drift", "feature_coverage",
+        "rolling_brier", "brier_baseline", "brier_baseline_label",
+        "rolling_brier_meta", "features_metadata", "run_engine",
+        "ensemble", "model_history", "version_history"
+      ],
+      "subkeys": {
+        "metrics": ["auc", "brier", "logloss", "ece", "brier_calibrated",
+                    "logloss_calibrated", "ece_calibrated"],
+        "drift_summary": ["warnings", "alerts", "features"],
+        "ensemble[]": ["name", "weight", "auc", "brier", "logloss",
+                       "n_eval", "brier_calibrated", "logloss_calibrated",
+                       "ece_calibrated"],
+        "model_history[]": ["version", "date", "auc", "brier", "logloss",
+                            "ece", "notes"],
+        "version_history[]": ["version", "date", "weights", "auc", "brier",
+                              "logloss", "ece", "brier_calibrated",
+                              "logloss_calibrated", "ece_calibrated",
+                              "calibration"],
+        "rolling_brier[]": ["date", "brier", "games"]
+      },
+      "dtypes": {
+        "date": "str (YYYY-MM-DD)", "version": "str (vYYYY.MM.DD)",
+        "brier_baseline": "float", "brier_baseline_label": "str"
+      },
+      "frontend_required": ["all"]
+    },
+    "rolling_brier": {
+      "file": "rolling_brier_20260907.json",
+      "ext": "json",
+      "keys": [
+        "window_days", "min_games_per_day", "source_column", "calibration",
+        "map_scope_note", "calibrator_is_identity", "n_points",
+        "n_games_total", "excluded_sparse_days", "history_mean_brier",
+        "series", "n_games_in_series"
+      ],
+      "subkeys": {"series[]": ["date", "brier", "games"]},
+      "dtypes": {
+        "window_days": "int", "min_games_per_day": "int",
+        "calibrator_is_identity": "bool", "n_points": "int",
+        "n_games_total": "int", "excluded_sparse_days": "int",
+        "history_mean_brier": "float", "n_games_in_series": "int"
+      },
+      "frontend_required": ["series"]
+    },
+    "features_metadata": {
+      "file": "features_metadata_20260907.json",
+      "ext": "json",
+      "keys": ["generated_for", "n_features", "warnings", "features",
+               "categorical_context"],
+      "subkeys": {
+        "features[<name>]": ["name", "summary", "definition", "formula",
+                             "source", "window", "units", "direction",
+                             "members", "tooltip"],
+        "categorical_context[<name>]": ["name", "summary", "definition",
+                                        "formula", "source", "window",
+                                        "units", "direction", "members",
+                                        "tooltip"]
+      },
+      "dtypes": {
+        "generated_for": "str (YYYYMMDD)", "n_features": "int",
+        "warnings": "list"
+      },
+      "frontend_required": ["all"]
+    },
+    "run_engine_monitor": {
+      "file": "run_engine_monitor_20260907.json",
+      "ext": "json",
+      "keys": ["schema", "date", "markets_persisted",
+               "markets_persist_error", "winner_cards", "rolling", "fit",
+               "market_metrics", "phase1"],
+      "subkeys": {
+        "schema": "literal 'run-engine-monitor/v2'",
+        "winner_cards": ["over_under", "run_line", "derived_ml"],
+        "winner_cards.<kind>": ["n", "actual_win_rate", "win_rate",
+                                "predicted_mean", "auc", "ece_raw",
+                                "ece_calibrated", "brier", "logloss",
+                                "logloss_calibrated", "holdout", "by_pick",
+                                "source", "nb_diagnostic", "ml_reference"],
+        "rolling": ["over_under", "run_line", "derived_ml"],
+        "fit": ["alpha_home", "alpha_away", "k_edge",
+                "dispersion_chi2_per_df", "fit_tables", "variance_check",
+                "mc_meta", "line_grid", "holdout_gate"],
+        "market_metrics": ["derived_moneyline", "over_7_5", "over_8_5",
+                           "over_9_5", "home_cover_1_5", "home_cover_2_5"],
+        "phase1": ["n_folds", "n_games", "dispersion_ratio",
+                   "final_fit_rounds"]
+      },
+      "dtypes": {"markets_persisted": "bool",
+                 "markets_persist_error": "null|str"},
+      "frontend_required": ["all"]
+    },
+    "shap_game": {
+      "file": "shap_game_20260907_ARI@KC.csv",
+      "ext": "csv",
+      "columns": ["feature", "shap_value", "signed_effect",
+                  "perspective_team"],
+      "dtypes": {
+        "feature": "str", "shap_value": "float",
+        "signed_effect": "str (positive|negative|zero)",
+        "perspective_team": "str (team abbrev)"
+      },
+      "frontend_required": ["all"]
+    },
+    "predictions_history": {
+      "file": "predictions_history_20260907.csv",
+      "ext": "csv",
+      "columns": ["game_id", "game_date", "home_team", "away_team",
+                  "home_score", "away_score", "home_win",
+                  "home_win_prob_model", "home_win_prob_model_calibrated",
+                  "model_pick", "actual_winner", "correct"],
+      "dtypes": {
+        "game_id": "str (YYYYMMDD_AWAY@HOME)", "game_date": "date",
+        "home_win": "float (0.0/1.0)",
+        "home_win_prob_model": "float",
+        "home_win_prob_model_calibrated": "float",
+        "model_pick": "str", "actual_winner": "str|null", "correct": "int"
+      },
+      "frontend_required": ["all"]
+    },
+    "feature_coverage": {
+      "file": "feature_coverage_20260907.csv",
+      "ext": "csv",
+      "columns": ["feature", "window", "n_games", "n_nonnull",
+                  "pct_nonnull", "n_measured", "pct_measured",
+                  "n_default_zero", "status"],
+      "dtypes": {
+        "feature": "str", "window": "str", "n_games": "int",
+        "n_nonnull": "int", "pct_nonnull": "float", "n_measured": "int",
+        "pct_measured": "float", "n_default_zero": "int", "status": "str"
+      },
+      "frontend_required": ["all"]
+    },
+    "feature_drift": {
+      "file": "feature_drift_20260907.csv",
+      "ext": "csv",
+      "columns": ["feature", "current_mean", "baseline_mean", "psi",
+                  "psi_adjusted", "noise_floor", "mean_shift", "shift_se",
+                  "location_shift", "status", "weight_pct", "n_baseline",
+                  "n_current"],
+      "dtypes": {
+        "feature": "str", "current_mean": "float", "baseline_mean": "float",
+        "psi": "float", "psi_adjusted": "float", "noise_floor": "float",
+        "mean_shift": "float", "shift_se": "float",
+        "location_shift": "bool", "status": "str", "weight_pct": "float",
+        "n_baseline": "int", "n_current": "int"
+      },
+      "frontend_required": ["all"]
+    },
+    "run_engine_oof": {
+      "file": "run_engine_oof_20260907.csv",
+      "ext": "csv",
+      "columns": ["game_pk", "game_date", "home_expected_runs",
+                  "away_expected_runs", "home_score", "away_score"],
+      "dtypes": {
+        "game_pk": "int", "game_date": "date", "home_expected_runs": "float",
+        "away_expected_runs": "float", "home_score": "int",
+        "away_score": "int"
+      },
+      "frontend_required": [],
+      "note": "No frontend reader (backend monitor rebuild/harness only)."
+    }
+  }
+}
