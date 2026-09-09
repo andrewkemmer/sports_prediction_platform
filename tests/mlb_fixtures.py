@@ -45,7 +45,11 @@ def make_statcast_games(
     """
     rng = np.random.default_rng(seed)
     frames: list[pd.DataFrame] = []
-    pk = 700_000
+    # Identity anchor: game_pk is globally unique in real Statcast, so
+    # separate fixture windows must never share the identity space —
+    # otherwise cross-window dedupe silently drops backfill rows (the
+    # Phase 4 flake on test_incremental_backfill_extends_history).
+    pk = 700_000 + start.toordinal()
     ab = 0
 
     def _emit_game(gd: date, home: str, away: str, *, decided: bool) -> None:
