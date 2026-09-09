@@ -1,0 +1,48 @@
+{
+ "created_utc": "2026-09-09T18:30:32.041936+00:00",
+ "n_games": 3,
+ "games": [
+  {
+   "game_id": "0022600001",
+   "game_date": "2026-10-20",
+   "home_team": "DET",
+   "away_team": "BOS",
+   "player_home_name": "J. Duren",
+   "player_home_ppg": 21.555555555555557,
+   "player_home_apg": 4.0,
+   "player_home_games": 9,
+   "player_away_name": "J. Brown",
+   "player_away_ppg": 30.428571428571427,
+   "player_away_apg": 5.0,
+   "player_away_games": 7
+  },
+  {
+   "game_id": "0022600002",
+   "game_date": "2026-10-20",
+   "home_team": "NYK",
+   "away_team": "PHI",
+   "player_home_name": "J. Brunson",
+   "player_home_ppg": 25.375,
+   "player_home_apg": 8.5,
+   "player_home_games": 8,
+   "player_away_name": "T. Maxey",
+   "player_away_ppg": 23.666666666666668,
+   "player_away_apg": 6.0,
+   "player_away_games": 9
+  },
+  {
+   "game_id": "0022600003",
+   "game_date": "2026-10-20",
+   "home_team": "SAS",
+   "away_team": "OKC",
+   "player_home_name": "V. Wembanyama",
+   "player_home_ppg": 30.714285714285715,
+   "player_home_apg": 4.142857142857143,
+   "player_home_games": 7,
+   "player_away_name": "S. Gilgeous-Alexander",
+   "player_away_ppg": 28.5,
+   "player_away_apg": 6.625,
+   "player_away_games": 8
+  }
+ ]
+}

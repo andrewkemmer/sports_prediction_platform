@@ -19,9 +19,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Frontend runtime deps — exactly what frontend/ imports (streamlit, altair
+# for SHAP/reliability charts, pandas) plus streamlit's own runtime needs.
 frontend = [
     "streamlit>=1.40",
     "altair>=5.0",
+    "pandas>=2.0",
+    "numpy>=1.26",
 ]
 dev = [
     "pytest>=8.0",

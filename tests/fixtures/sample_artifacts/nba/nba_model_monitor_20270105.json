@@ -1,0 +1,69 @@
+{
+ "last_retrained": "2027-01-05",
+ "next_retrain": "2027-01-05",
+ "ensemble": [
+  {
+   "name": "xgboost",
+   "weight": 0.1742,
+   "auc": 0.6940866572506675,
+   "brier": 0.219106442419225,
+   "logloss": 0.6299394425859145
+  },
+  {
+   "name": "lightgbm",
+   "weight": 0.1624,
+   "auc": 0.6930345960569929,
+   "brier": 0.21954676381795626,
+   "logloss": 0.6308103401063931
+  },
+  {
+   "name": "logistic",
+   "weight": 0.2957,
+   "auc": 0.7020237948254652,
+   "brier": 0.21591787325966139,
+   "logloss": 0.6240271696973996
+  },
+  {
+   "name": "randomforest",
+   "weight": 0.2325,
+   "auc": 0.6984156521434236,
+   "brier": 0.21712351059717208,
+   "logloss": 0.6239633827319455
+  },
+  {
+   "name": "mlp",
+   "weight": 0.1352,
+   "auc": 0.6902843515493688,
+   "brier": 0.2192465378798225,
+   "logloss": 0.6308799962949172
+  }
+ ],
+ "version_history": [
+  {
+   "version": "20270105",
+   "date": "2027-01-05",
+   "weights": {
+    "xgboost": 0.1742,
+    "lightgbm": 0.1624,
+    "logistic": 0.2957,
+    "randomforest": 0.2325,
+    "mlp": 0.1352
+   },
+   "auc": 0.7006457351230819,
+   "logloss": 0.6215516484865372,
+   "ece_calibrated": 0.007706374970627679,
+   "note": "rebuild run",
+   "calibration": {
+    "a": 0.924472,
+    "b": -0.021333
+   }
+  }
+ ],
+ "rolling_brier": [],
+ "brier_baseline": 0.4355363767128473,
+ "brier_baseline_label": "Constant home-edge",
+ "feature_drift": [],
+ "feature_coverage": [],
+ "upset_note": null,
+ "metrics": {}
+}

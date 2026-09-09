@@ -1,0 +1,77 @@
+{
+ "schema": "run-engine-monitor/v2",
+ "date": "2027-01-05",
+ "markets_persisted": true,
+ "markets_persist_error": null,
+ "winner_cards": {
+  "over_under": {
+   "n": 13209,
+   "brier": 0.2532,
+   "logloss": 0.6995,
+   "predicted_mean": 0.4902
+  },
+  "spread": {
+   "n": 13209,
+   "brier": 0.2494,
+   "logloss": 0.692,
+   "predicted_mean": 0.4846
+  },
+  "derived_ml": {
+   "n": 13209,
+   "brier": 0.2181,
+   "logloss": 0.6258,
+   "predicted_mean": 0.5667,
+   "ml_reference": {
+    "source": "ml_win_prob",
+    "n": 13209,
+    "win_rate": 0.6507,
+    "predicted_mean": 0.5733
+   }
+  }
+ },
+ "slate_history": [
+  {
+   "card": "over_under",
+   "date": "2027-01-05",
+   "n": 13209,
+   "brier": 0.2532,
+   "logloss": 0.6995,
+   "predicted_mean": 0.4902
+  },
+  {
+   "card": "spread",
+   "date": "2027-01-05",
+   "n": 13209,
+   "brier": 0.2494,
+   "logloss": 0.692,
+   "predicted_mean": 0.4846
+  },
+  {
+   "card": "derived_ml",
+   "date": "2027-01-05",
+   "n": 13209,
+   "brier": 0.2181,
+   "logloss": 0.6258,
+   "predicted_mean": 0.5667
+  }
+ ],
+ "fit": {},
+ "market_metrics": {},
+ "config": {
+  "feature_set_version": "nba-prod-v1",
+  "warmup_seasons": [
+   2015
+  ],
+  "oof_first_season": 2016,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ }
+}

@@ -1,0 +1,36 @@
+{
+ "record": "nba_run_engine_markets",
+ "written_utc": "2026-09-09T18:30:46.405503+00:00",
+ "config": {
+  "feature_set_version": "nba-prod-v1",
+  "warmup_seasons": [
+   2015
+  ],
+  "oof_first_season": 2016,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ },
+ "columns": 44,
+ "n_rows": 12,
+ "n_oof": 13209,
+ "n_slate": 514,
+ "grids": {
+  "spread": [
+   -20,
+   20
+  ],
+  "total": [
+   200,
+   250
+  ],
+  "half_stops": []
+ }
+}

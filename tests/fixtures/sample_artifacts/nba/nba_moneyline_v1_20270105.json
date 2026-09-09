@@ -1,0 +1,81 @@
+{
+ "created_utc": "2026-09-09T18:30:31.598765+00:00",
+ "config": {
+  "feature_set_version": "nba-prod-v1",
+  "warmup_seasons": [
+   2015
+  ],
+  "oof_first_season": 2016,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ },
+ "slate_date": "2026-10-20",
+ "n_games": 3,
+ "games": [
+  {
+   "game_id": "0022600001",
+   "game_date": "2026-10-20 00:00:00",
+   "start_time_utc": "2026-10-20T19:00:00Z",
+   "home_team": "DET",
+   "away_team": "BOS",
+   "home_team_name": "DET",
+   "away_team_name": "BOS",
+   "home_record": null,
+   "away_record": null,
+   "venue": "Little Caesars Arena | Detroit",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.5721259507011427,
+   "away_win_prob_model": 0.4278740492988573,
+   "model_pick": "DET",
+   "model_correct": null
+  },
+  {
+   "game_id": "0022600002",
+   "game_date": "2026-10-20 00:00:00",
+   "start_time_utc": "2026-10-20T23:00:00Z",
+   "home_team": "NYK",
+   "away_team": "PHI",
+   "home_team_name": "NYK",
+   "away_team_name": "PHI",
+   "home_record": null,
+   "away_record": null,
+   "venue": "Madison Square Garden | New York",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.6663718074121102,
+   "away_win_prob_model": 0.3336281925878898,
+   "model_pick": "NYK",
+   "model_correct": null
+  },
+  {
+   "game_id": "0022600003",
+   "game_date": "2026-10-20 00:00:00",
+   "start_time_utc": "2026-10-21T01:30:00Z",
+   "home_team": "SAS",
+   "away_team": "OKC",
+   "home_team_name": "SAS",
+   "away_team_name": "OKC",
+   "home_record": null,
+   "away_record": null,
+   "venue": "Frost Bank Center | San Antonio",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.5367528618230272,
+   "away_win_prob_model": 0.46324713817697283,
+   "model_pick": "SAS",
+   "model_correct": null
+  }
+ ]
+}
