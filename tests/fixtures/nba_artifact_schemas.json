@@ -1,0 +1,465 @@
+{
+  "source": "Platform conventions (Phase 5). The read-only reference repository contains NO NBA backend or NBA artifacts (grep for 'nba' returns only deferral notes), so no reference artifact exists to extract. This fixture pins the NBA contract to the platform's proven artifact conventions (sport-prefixed families, MLB/NFL/NHL-shaped JSON records) and is immutable going forward: changes require a reviewed schema-fixture diff. Provenance: sports/nfl/ + sports/nhl/ fixture lineage and the Phase 5 adapter contract.",
+  "extracted_from_commit": null,
+  "artifacts": {
+    "moneyline_json": {
+      "file": "nba_moneyline_v1_20260909.json",
+      "keys": [
+        "created_utc",
+        "config",
+        "slate_date",
+        "n_games",
+        "games"
+      ],
+      "game_keys": [
+        "game_id",
+        "game_date",
+        "start_time_utc",
+        "home_team",
+        "away_team",
+        "home_team_name",
+        "away_team_name",
+        "home_record",
+        "away_record",
+        "venue",
+        "game_status",
+        "home_score",
+        "away_score",
+        "home_win_prob_model",
+        "away_win_prob_model",
+        "model_pick",
+        "model_correct"
+      ],
+      "game_keys_dtypes": {
+        "game_id": "str",
+        "game_date": "date(YYYY-MM-DD)",
+        "start_time_utc": "iso8601|null",
+        "home_team": "str (tricode)",
+        "away_team": "str (tricode)",
+        "home_team_name": "str",
+        "away_team_name": "str",
+        "home_record": "str|null (W-L)",
+        "away_record": "str|null (W-L)",
+        "venue": "str|null",
+        "game_status": "str (pre)",
+        "home_score": "null until final",
+        "away_score": "null until final",
+        "home_win_prob_model": "float|null",
+        "away_win_prob_model": "float|null",
+        "model_pick": "str|null",
+        "model_correct": "null for slate rows"
+      },
+      "frontend_required": [
+        "game_id",
+        "game_date",
+        "home_team",
+        "away_team",
+        "home_team_name",
+        "away_team_name",
+        "home_win_prob_model",
+        "away_win_prob_model",
+        "model_pick",
+        "game_status"
+      ]
+    },
+    "calibration_json": {
+      "file": "nba_calibration_20260909.json",
+      "keys": [
+        "date",
+        "trained_at",
+        "n_games",
+        "created_utc",
+        "config",
+        "metrics",
+        "calibration",
+        "calibration_buckets",
+        "daily"
+      ],
+      "metrics_keys": [
+        "auc",
+        "brier",
+        "logloss",
+        "ece",
+        "ece_calibrated",
+        "auc_calibrated",
+        "brier_calibrated",
+        "logloss_calibrated"
+      ],
+      "calibration_keys": [
+        "method",
+        "params",
+        "metrics_raw",
+        "metrics_calibrated",
+        "calibration_buckets_calibrated"
+      ],
+      "bucket_keys": [
+        "bucket",
+        "mean_predicted",
+        "mean_actual",
+        "count",
+        "gap"
+      ],
+      "frontend_required": [
+        "date",
+        "n_games",
+        "metrics",
+        "calibration",
+        "calibration_buckets",
+        "daily"
+      ]
+    },
+    "predictions_history": {
+      "file": "nba_predictions_history_20260909.csv",
+      "columns": [
+        "game_id",
+        "game_date",
+        "home_team",
+        "away_team",
+        "home_score",
+        "away_score",
+        "home_win",
+        "home_win_prob_model",
+        "home_win_prob_model_calibrated",
+        "model_pick",
+        "actual_winner",
+        "correct"
+      ],
+      "dtypes": {
+        "game_id": "str",
+        "game_date": "date(YYYY-MM-DD)",
+        "home_team": "str (tricode)",
+        "away_team": "str (tricode)",
+        "home_score": "float",
+        "away_score": "float",
+        "home_win": "float 0/1 (full-game incl OT — ties structurally impossible)",
+        "home_win_prob_model": "float",
+        "home_win_prob_model_calibrated": "float",
+        "model_pick": "str",
+        "actual_winner": "str (team)",
+        "correct": "bool"
+      },
+      "frontend_required": [
+        "all"
+      ]
+    },
+    "power_rankings": {
+      "file": "nba_power_rankings_20260909.csv",
+      "columns": [
+        "rank",
+        "team",
+        "team_name",
+        "elo",
+        "wins",
+        "losses",
+        "record",
+        "pct",
+        "run_diff",
+        "l10",
+        "home_pct",
+        "away_pct"
+      ],
+      "dtypes": {
+        "rank": "int",
+        "team": "str (tricode)",
+        "team_name": "str",
+        "elo": "float",
+        "wins": "int",
+        "losses": "int",
+        "record": "str (W-L)",
+        "pct": "float",
+        "run_diff": "int (point differential)",
+        "l10": "str",
+        "home_pct": "float|null",
+        "away_pct": "float|null"
+      },
+      "frontend_required": [
+        "all"
+      ]
+    },
+    "markets": {
+      "file": "nba_run_engine_markets_20260909.csv",
+      "columns": [
+        "kind",
+        "game_id",
+        "gameday",
+        "season",
+        "home_team",
+        "away_team",
+        "venue",
+        "home_record",
+        "away_record",
+        "p_home_win",
+        "p_away_win",
+        "derived_ml",
+        "p_home_win_derived",
+        "p_away_win_derived",
+        "mu_h",
+        "mu_a",
+        "mu_margin",
+        "mu_total",
+        "fair_spread",
+        "fair_total",
+        "spread_line",
+        "total_line",
+        "has_offer",
+        "p_cover_offered",
+        "p_push_offered",
+        "p_over_offered",
+        "p_under_offered",
+        "p_push_total_offered",
+        "home_score",
+        "away_score",
+        "total",
+        "margin",
+        "p_over_fair",
+        "p_cover_fair",
+        "y_over_fair",
+        "y_under_fair",
+        "y_push_fair",
+        "y_cover_fair",
+        "y_push_spread_fair",
+        "y_home_win",
+        "decided",
+        "frame_view",
+        "pred_home",
+        "pred_away"
+      ],
+      "dtypes": {
+        "kind": "str (oof|slate)",
+        "game_id": "str",
+        "gameday": "date(YYYY-MM-DD)",
+        "season": "int",
+        "home_team": "str",
+        "away_team": "str",
+        "venue": "str|null",
+        "home_record": "str|null",
+        "away_record": "str|null",
+        "p_home_win": "float (full-game, OT resolved; TIE structurally impossible)",
+        "p_away_win": "float (full-game)",
+        "derived_ml": "float",
+        "p_home_win_derived": "float (full-game)",
+        "p_away_win_derived": "float (full-game)",
+        "mu_h": "float",
+        "mu_a": "float",
+        "mu_margin": "float",
+        "mu_total": "float",
+        "fair_spread": "float",
+        "fair_total": "float",
+        "spread_line": "float|null (no offers)",
+        "total_line": "float|null",
+        "has_offer": "bool",
+        "p_cover_offered": "float|null",
+        "p_push_offered": "float|null",
+        "p_over_offered": "float|null",
+        "p_under_offered": "float|null",
+        "p_push_total_offered": "float|null",
+        "home_score": "float|null",
+        "away_score": "float|null",
+        "total": "float|null",
+        "margin": "float|null",
+        "p_over_fair": "float",
+        "p_cover_fair": "float",
+        "y_over_fair": "float|null (oof rows)",
+        "y_under_fair": "float|null",
+        "y_push_fair": "float|null",
+        "y_cover_fair": "float|null",
+        "y_push_spread_fair": "float|null",
+        "y_home_win": "float|null",
+        "decided": "bool",
+        "frame_view": "str (oof|slate)",
+        "pred_home": "float",
+        "pred_away": "float",
+        "p_home_cover_<L>": "float (L=-20..20 int; integer spreads can push)",
+        "p_push_<L>": "float (integer lines only)",
+        "p_over_<U>": "float (U=200..250 int)",
+        "p_under_<U>": "float",
+        "p_push_<U>": "float (integer totals only)"
+      },
+      "frontend_required": [
+        "all"
+      ]
+    },
+    "markets_meta": {
+      "file": "nba_run_engine_markets_20260909.meta.json",
+      "keys": [
+        "record",
+        "written_utc",
+        "config",
+        "columns",
+        "n_rows",
+        "n_oof",
+        "n_slate",
+        "grids"
+      ],
+      "config_keys": [
+        "feature_set_version",
+        "warmup_seasons",
+        "oof_first_season",
+        "retrain_cadence_days",
+        "ensemble_members",
+        "random_seed",
+        "market_independence"
+      ],
+      "grids": {
+        "spread": [
+          -20,
+          20
+        ],
+        "total": [
+          200,
+          250
+        ],
+        "half_stops": []
+      },
+      "frontend_required": [
+        "all"
+      ]
+    },
+    "markets_monitor": {
+      "file": "nba_run_engine_monitor_20260909.json",
+      "keys": [
+        "schema",
+        "date",
+        "markets_persisted",
+        "markets_persist_error",
+        "winner_cards",
+        "slate_history",
+        "fit",
+        "market_metrics",
+        "config"
+      ],
+      "winner_card_keys": [
+        "n",
+        "brier",
+        "logloss",
+        "predicted_mean"
+      ],
+      "frontend_required": [
+        "date",
+        "markets_persisted",
+        "winner_cards",
+        "slate_history",
+        "fit",
+        "market_metrics"
+      ]
+    },
+    "player_matchup": {
+      "file": "nba_player_matchup_20260909.json",
+      "keys": [
+        "created_utc",
+        "n_games",
+        "games"
+      ],
+      "game_keys": [
+        "game_id",
+        "game_date",
+        "home_team",
+        "away_team",
+        "player_home_name",
+        "player_home_ppg",
+        "player_home_apg",
+        "player_home_games",
+        "player_away_name",
+        "player_away_ppg",
+        "player_away_apg",
+        "player_away_games"
+      ],
+      "game_keys_dtypes": {
+        "game_id": "str",
+        "game_date": "date(YYYY-MM-DD)",
+        "home_team": "str",
+        "away_team": "str",
+        "player_home_name": "str|null (TBD when unavailable)",
+        "player_home_ppg": "float|null (last 10 prior games)",
+        "player_home_apg": "float|null (last 10 prior games)",
+        "player_home_games": "int|null",
+        "player_away_name": "str|null",
+        "player_away_ppg": "float|null",
+        "player_away_apg": "float|null",
+        "player_away_games": "int|null"
+      },
+      "frontend_required": [
+        "all"
+      ]
+    },
+    "feature_json": {
+      "file": "nba_feature_v1_20260909.json",
+      "keys": [
+        "created_utc",
+        "feature_set_version",
+        "manifest",
+        "served_columns",
+        "coverage",
+        "fold_geometry",
+        "config"
+      ],
+      "coverage_row_keys": [
+        "feature",
+        "n_games",
+        "coverage_pct",
+        "mean",
+        "std"
+      ],
+      "frontend_required": [
+        "feature_set_version",
+        "served_columns",
+        "coverage",
+        "fold_geometry"
+      ]
+    },
+    "model_monitor": {
+      "file": "nba_model_monitor_20260909.json",
+      "keys": [
+        "last_retrained",
+        "last_retrained_note",
+        "next_retrain",
+        "next_retrain_note",
+        "upset_note",
+        "feature_drift",
+        "features_metadata",
+        "feature_coverage",
+        "ensemble",
+        "rolling_brier",
+        "brier_baseline",
+        "brier_baseline_label",
+        "rolling_brier_meta",
+        "version_history",
+        "fold_geometry",
+        "config"
+      ],
+      "frontend_required": [
+        "last_retrained",
+        "next_retrain",
+        "feature_drift",
+        "features_metadata",
+        "feature_coverage",
+        "ensemble",
+        "rolling_brier",
+        "brier_baseline",
+        "brier_baseline_label",
+        "rolling_brier_meta",
+        "version_history",
+        "fold_geometry"
+      ]
+    },
+    "shap_game": {
+      "file": "nba_shap_game_20260909_0022300061.csv",
+      "columns": [
+        "feature",
+        "shap_value",
+        "signed_effect",
+        "perspective_team"
+      ],
+      "dtypes": {
+        "feature": "str",
+        "shap_value": "float",
+        "signed_effect": "str (positive|negative)",
+        "perspective_team": "str (favored team tricode)"
+      },
+      "frontend_required": [
+        "all"
+      ],
+      "count_rule": "exactly one file per undecided prediction-slate game; zero files for an empty slate; no fixed minimum"
+    }
+  }
+}

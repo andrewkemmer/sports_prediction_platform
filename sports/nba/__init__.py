@@ -1,1 +1,1 @@
-# NBA sport package (scaffold only — no pipeline logic yet).
+# NBA sport package (Phase 5 production implementation).

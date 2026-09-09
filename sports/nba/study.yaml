@@ -1,0 +1,131 @@
+# NBA study configuration (Phase 5).
+#
+# Frozen geometry: warmup, fold cadence, OOF rules, and minimum training
+# rows come from HERE — never from the run window (NBA_START_DATE /
+# NBA_END_DATE scope ingestion/serving only). No dynamic optimization is
+# permitted in Phase 5; changes require a reviewed study-config commit.
+#
+# The decided-game universe: regular-season history with 2015 as the
+# warmup-only season and 2016+ as the OOF population. The 2015 season
+# anchors every trailing/Elo ladder so 2016 games open with real priors
+# and are never OOF-scored. The current season's schedule is used for
+# predictions. Training history is NEVER derived from NBA_START_DATE /
+# NBA_END_DATE.
+#
+# Source availability (Phase 5 probe, documented in catalog.py): the NBA
+# Stats API serves schedules with finals back to at least 2005-06 (one
+# call/season) and team game logs back to 1946-47; the study window
+# (2015+) is comfortably inside availability.
+
+sport: nba
+kind: production
+study_id: nba-production-phase5
+
+# Decided-universe eligibility.
+warmup_seasons: [2015]          # trailing priors only — never OOF-evaluated
+oof_first_season: 2016          # OOF population starts here
+
+# Trailing windows (games).
+windows:
+  form_window: 5                # net points/game window
+  winpct_window: 12             # trailing win% window
+  ewm_halflife: 3               # decaying-window halflife (games)
+  player_window: 10             # display-only player last-N window
+#
+# NOTE on player stats: the schedule/gamelog endpoints carry no per-player
+# data and per-game boxscore pulls for full history would exceed the
+# bounded-run budget (~1,230 calls/season). Player PTS/AST are proven
+# available (catalog) and served DISPLAY-ONLY through the participant
+# panel; they are deliberately NOT model features. The feature contract
+# is schedule-derivable only.
+
+# Elo parameters (league-standard priors; frozen).
+elo:
+  prior: 1500.0
+  k: 20.0
+  scale: 400.0
+
+# Schedule / venue facts.
+venue:
+  prime_time_hour: 19           # UTC start hour; >= this = evening game
+
+warmup:
+  min_history_days: 0           # NBA history is season-based, not day-based
+  min_games_per_team: 1         # a team's first game still has a real Elo prior
+
+walk_forward:
+  min_train_games: 50           # a fold below this many training rows is skipped
+  step_days: 7                  # fold cadence: 7-calendar-day validation windows
+  embargo_days: 0               # validation windows are date-keyed, non-overlapping
+  min_val_games: 1              # no arbitrary minimum — every legitimate window is a fold
+  max_eval_folds: 0             # 0 = full history
+
+oof:
+  require_prob_strictly_inside: true   # home_win_prob_model in (0,1)
+  undecided_rows_excluded: true        # NaN home_win rows never score metrics
+  require_unique_game_id: true
+  require_decided_only: true           # home_win non-null on every OOF row
+  min_training_rows: 50                # minimum training rows per fold (recheck)
+
+training:
+  ensemble_members: [xgboost, lightgbm, logistic, randomforest, mlp]
+  retrain_cadence_days: 7      # fold geometry (not a scheduler)
+  min_train_days_warmup: 0
+  random_seed: 42              # explicit seeds for every stochastic component
+  ensemble_weights:            # fallback priors; replaced by adaptive OOF weights
+    xgboost: 0.25
+    lightgbm: 0.25
+    logistic: 0.20
+    randomforest: 0.15
+    mlp: 0.15
+  adaptive_weight_metric: auc
+  adaptive_weight_temperature: 0.015
+  adaptive_weight_floor: 0.05
+  adaptive_weight_cap: 0.45
+
+# Distribution grids (run engine: margin/total discrete-normal PMFs).
+# NBA margins are wide (max observed regular-season margin ~50+) and
+# totals cluster 190-250; the grids are sized to the sport, not copied
+# from the NHL/NFL. NBA games CANNOT end in a tie: overtime repeats
+# until a winner exists, so every full-game moneyline is two-way and the
+# tie mass is structurally zero.
+market:
+  spread_grid: [-20, 20]       # integer spread lines (push possible)
+  total_grid: [200, 250]       # full-game totals (push possible)
+  half_stop_lines: []          # no half-point lines in the Phase 5 grid
+  margin_pmf_max: 45
+  total_pmf_max: 300
+  margin_sigma: 11.0
+  total_sigma: 18.0
+  sigma_floor_margin: 8.0
+  sigma_cap_margin: 16.0
+  sigma_floor_total: 12.0
+  sigma_cap_total: 26.0
+  p_tie_max: 0.0               # structurally impossible: OT resolves every game
+  fixed_totals: [220, 225, 230]
+  canonical_spreads: [0]
+
+retention:
+  frontend_days: 10            # 10-day rolling deletion for frontend artifacts
+
+# Frontend artifact families (delivery allowlist).
+allowlisted_families:
+  - nba_moneyline_json
+  - nba_calibration
+  - nba_predictions_history
+  - nba_power_rankings
+  - nba_markets
+  - nba_markets_monitor
+  - nba_player_matchup
+  - nba_feature_json
+  - nba_model_monitor
+  - nba_shap_game
+  - nba_feature_drift
+  - nba_feature_coverage
+
+# NOT frontend-consumed: OOF stores are backend evaluation data — written
+# under data_delivery/models/ and retention-exempt.
+retention_exempt_families:
+  - nba_oof_store
+  - nba_fold_table
+  - nba_pipeline_summary
