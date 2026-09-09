@@ -1,0 +1,126 @@
+# NHL study configuration (Phase 4).
+#
+# Frozen geometry: warmup, fold cadence, OOF rules, and minimum training
+# rows come from HERE — never from the run window (NHL_START_DATE /
+# NHL_END_DATE scope ingestion/serving only). No dynamic optimization is
+# permitted in Phase 4; changes require a reviewed study-config commit.
+#
+# The decided-game universe: regular-season (gameType 2) history with 2021
+# as the warmup-only season and 2022+ as the OOF population. The 2021
+# season anchors every trailing/Elo ladder so 2022 games open with real
+# priors and are never OOF-scored. The current season's schedule is used
+# for predictions. Training history is NEVER derived from NHL_START_DATE /
+# NHL_END_DATE.
+#
+# Source availability (Phase 4 probe, documented in catalog.py): the NHL
+# Stats API serves schedules/boxscores/play-by-play back to 2010; the
+# study window (2021+) is comfortably inside availability.
+
+sport: nhl
+kind: production
+study_id: nhl-production-phase4
+
+# Decided-universe eligibility.
+warmup_seasons: [2021]          # trailing priors only — never OOF-evaluated
+oof_first_season: 2022          # OOF population starts here
+
+# Trailing windows (games).
+windows:
+  form_window: 4                # net goals/game window
+  winpct_window: 12             # trailing win% window
+  ewm_halflife: 2               # decaying-window halflife (games)
+  goalie_window: 10             # display-only goalie last-N window
+#
+# NOTE on shots: the NHL schedule endpoint carries no team shot data and
+# per-game boxscore pulls for full history would exceed the bounded-run
+# budget (~1,300 calls/season). Shots/SA/GA are proven available (catalog)
+# and served DISPLAY-ONLY through the goalie panel; they are deliberately
+# NOT model features. The feature contract is schedule-derivable only.
+
+# Elo parameters (league-standard hockey priors; frozen).
+elo:
+  prior: 1500.0
+  k: 20.0                       # lower than NFL — NHL outcomes are noisier
+  scale: 400.0
+
+# Schedule / venue facts.
+venue:
+  prime_time_hour: 19           # local start hour; >= this = evening game
+
+warmup:
+  min_history_days: 0           # NHL history is season-based, not day-based
+  min_games_per_team: 1         # a team's first game still has a real Elo prior
+
+walk_forward:
+  min_train_games: 50           # a fold below this many training rows is skipped
+  step_days: 7                  # fold cadence: 7-calendar-day validation windows
+  embargo_days: 0               # validation windows are date-keyed, non-overlapping
+  min_val_games: 1              # no arbitrary minimum — every legitimate window is a fold
+  max_eval_folds: 0             # 0 = full history
+
+oof:
+  require_prob_strictly_inside: true   # home_win_prob_model in (0,1)
+  undecided_rows_excluded: true        # NaN home_win rows never score metrics
+  require_unique_game_id: true
+  require_decided_only: true           # home_win non-null on every OOF row
+  min_training_rows: 50                # minimum training rows per fold (recheck)
+
+training:
+  ensemble_members: [xgboost, lightgbm, logistic, randomforest, mlp]
+  retrain_cadence_days: 7      # fold geometry (not a scheduler)
+  min_train_days_warmup: 0
+  random_seed: 42              # explicit seeds for every stochastic component
+  ensemble_weights:            # fallback priors; replaced by adaptive OOF weights
+    xgboost: 0.25
+    lightgbm: 0.25
+    logistic: 0.20
+    randomforest: 0.15
+    mlp: 0.15
+  adaptive_weight_metric: auc
+  adaptive_weight_temperature: 0.015
+  adaptive_weight_floor: 0.05
+  adaptive_weight_cap: 0.45
+
+# Distribution grids (run engine: margin/total discrete-normal PMFs).
+# NHL margins are small (max observed regular-season margin 13) and totals
+# cluster 4-12; the grids are sized to the sport, not copied from the NFL.
+market:
+  spread_grid: [-4, 4]         # puck-line lines (integer; 1.5 is the NHL staple)
+  total_grid: [5, 12]          # full-game totals (5+ — a total of 4 is not a real market and would collide with the puckline grid key space)
+  half_stop_lines: [-1.5, 1.5, 5.5, 6.5]   # NHL standard half-lines (no push)
+  margin_pmf_max: 13
+  total_pmf_max: 16
+  margin_sigma: 2.8
+  total_sigma: 2.0
+  sigma_floor_margin: 2.0
+  sigma_cap_margin: 4.0
+  sigma_floor_total: 1.4
+  sigma_cap_total: 2.8
+  p_tie_max: 0.30              # NHL full games CAN tie in regulation (3-way ML)
+  fixed_totals: [5, 6, 7]
+  canonical_spreads: [1]
+
+retention:
+  frontend_days: 10            # 10-day rolling deletion for frontend artifacts
+
+# Frontend artifact families (delivery allowlist).
+allowlisted_families:
+  - nhl_moneyline_json
+  - nhl_calibration
+  - nhl_predictions_history
+  - nhl_power_rankings
+  - nhl_markets
+  - nhl_markets_monitor
+  - nhl_goalie_matchup
+  - nhl_feature_json
+  - nhl_model_monitor
+  - nhl_shap_game
+  - nhl_feature_drift
+  - nhl_feature_coverage
+
+# NOT frontend-consumed: OOF stores are backend evaluation data — written
+# under data_delivery/models/ and retention-exempt.
+retention_exempt_families:
+  - nhl_oof_store
+  - nhl_fold_table
+  - nhl_pipeline_summary
