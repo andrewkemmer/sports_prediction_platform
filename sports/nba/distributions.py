@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 
 from sports.nba.features import tree_view
-from sports.nba.folds import make_folds
+from core.folds import make_folds
 from sports.nba.study_config import load_nba_study
 
 logger = logging.getLogger(__name__)

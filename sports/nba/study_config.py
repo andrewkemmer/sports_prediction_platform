@@ -136,10 +136,39 @@ class MarketConfig:
 #: constant anchor excluded from this list). All are schedule-derivable
 #: point-in-time facts. The player panel is display-only and deliberately
 #: absent (see study.yaml windows note).
+#
+#: Phase 7.5 Task 2 — versioned per-model contracts (rename/remap ONLY).
+#: The served pool is carried over byte-identical; the single historic
+#: list is now declared twice as two INDEPENDENT model contracts so
+#: neither model can inherit the other's list. Prior version string
+#: preserved for provenance.
 FEATURE_COLUMNS: tuple[str, ...] = (
     "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
     "ewm_net_pts_diff", "travel_miles_diff", "conf_game", "prime_time",
 )
+
+#: Versioned moneyline (binary home_win) feature contract — v75: the
+#: restructured contract-format version (explicit per-model declarations
+#: replacing the single shared pool). Feature list identical to the
+#: historic ``FEATURE_COLUMNS`` (prior version: nba-prod-v1).
+#: Declared INDEPENDENTLY (not an alias of FEATURE_COLUMNS) so neither
+#: model can inherit the other's list; content identical to the historic
+#: pool (behavior-neutral).
+MONEYLINE_FEATURE_COLS: tuple[str, ...] = tuple([
+    "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
+    "ewm_net_pts_diff", "travel_miles_diff", "conf_game", "prime_time",
+])
+MONEYLINE_CONTRACT_VERSION = "nba-moneyline-v75"
+
+#: Versioned market (margin distribution) feature contract — v75: the
+#: restructured contract-format version. Feature list identical to the
+#: historic ``FEATURE_COLUMNS`` (prior version: nba-prod-v1).
+#: Declared INDEPENDENTLY (not an alias of FEATURE_COLUMNS).
+MARKET_FEATURE_COLS: tuple[str, ...] = tuple([
+    "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
+    "ewm_net_pts_diff", "travel_miles_diff", "conf_game", "prime_time",
+])
+MARKET_CONTRACT_VERSION = "nba-market-v75"
 
 
 @dataclass(frozen=True)
@@ -165,6 +194,10 @@ class NBAStudy:
     allowlisted_families: tuple[str, ...]
     retention_exempt_families: tuple[str, ...]
     feature_columns: tuple[str, ...] = FEATURE_COLUMNS
+    moneyline_feature_cols: tuple[str, ...] = MONEYLINE_FEATURE_COLS
+    moneyline_contract_version: str = MONEYLINE_CONTRACT_VERSION
+    market_feature_cols: tuple[str, ...] = MARKET_FEATURE_COLS
+    market_contract_version: str = MARKET_CONTRACT_VERSION
     source_path: Path | None = None
 
     @property
@@ -371,5 +404,10 @@ def load_nba_study(path: str | Path | None = None) -> NBAStudy:
         frontend_days=frontend_days,
         allowlisted_families=allow,
         retention_exempt_families=exempt,
+        feature_columns=FEATURE_COLUMNS,
+        moneyline_feature_cols=MONEYLINE_FEATURE_COLS,
+        moneyline_contract_version=MONEYLINE_CONTRACT_VERSION,
+        market_feature_cols=MARKET_FEATURE_COLS,
+        market_contract_version=MARKET_CONTRACT_VERSION,
         source_path=p,
     )

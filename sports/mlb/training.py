@@ -22,78 +22,8 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-
-def walk_forward_splits(
-    games: pd.DataFrame,
-    retrain_cadence_days: int = 7,
-    max_eval_folds: int = 0,
-    min_train_days: int = 0,
-) -> list[dict[str, Any]]:
-    """Generate expanding-window walk-forward train/val splits.
-
-    Args:
-        games: game frame with ``game_date`` and ``home_win`` columns.
-        retrain_cadence_days: validation window width (fold cadence).
-        max_eval_folds: cap on the number of folds (0 = full history).
-        min_train_days: skip validation windows that start before this many
-            calendar days of history (warm-up).
-
-    Returns a list of dicts with keys: train_games, val_games, fold_idx,
-    val_start, val_end, is_partial_tail.
-    """
-    if "game_date" not in games.columns:
-        raise ValueError("games must have a 'game_date' column")
-    if "home_win" not in games.columns:
-        logger.warning("walk_forward_splits: no 'home_win' column — cannot split")
-        return []
-
-    df = games.dropna(subset=["home_win"]).copy()
-    if df.empty:
-        logger.warning(
-            "walk_forward_splits: all %d rows have NaN home_win — cannot split",
-            len(games))
-        return []
-    df["game_date"] = pd.to_datetime(df["game_date"])
-    df["game_date"] = df["game_date"].dt.normalize()
-    df = df.sort_values("game_date").reset_index(drop=True)
-
-    unique_dates = sorted(df["game_date"].unique())
-    if len(unique_dates) < retrain_cadence_days + 1:
-        logger.warning(
-            "walk_forward_splits: only %d unique dates (need >= %d for "
-            "cadence %d)", len(unique_dates), retrain_cadence_days + 1,
-            retrain_cadence_days)
-        return []
-
-    splits: list[dict[str, Any]] = []
-    fold_idx = 0
-    val_start_idx = max(retrain_cadence_days, min_train_days)
-    while val_start_idx < len(unique_dates):
-        val_start = unique_dates[val_start_idx]
-        val_end_idx = min(val_start_idx + retrain_cadence_days, len(unique_dates))
-        val_end = unique_dates[val_end_idx - 1]
-        is_partial_tail = val_end_idx < val_start_idx + retrain_cadence_days
-
-        train_mask = df["game_date"] < val_start
-        val_mask = (df["game_date"] >= val_start) & (df["game_date"] <= val_end)
-        train_games = df[train_mask].copy()
-        val_games = df[val_mask].copy()
-
-        if not train_games.empty and not val_games.empty:
-            splits.append({
-                "train_games": train_games,
-                "val_games": val_games,
-                "fold_idx": fold_idx,
-                "val_start": val_start,
-                "val_end": val_end,
-                "is_partial_tail": is_partial_tail,
-            })
-            fold_idx += 1
-        val_start_idx = val_end_idx
-
-    if max_eval_folds > 0 and len(splits) > max_eval_folds:
-        splits = splits[-max_eval_folds:]
-    return splits
+# Fold geometry lives in core.folds (Phase 7.5 Task 1 consolidation).
+from core.folds import walk_forward_splits  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

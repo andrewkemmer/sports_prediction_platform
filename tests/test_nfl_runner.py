@@ -264,7 +264,8 @@ class TestStudyDeterminism:
         """7-calendar-day windows — never week-ID based."""
         sched = make_schedule(2019, 1)
         df = sched[sched["home_score"].notna()].reset_index(drop=True)
-        from sports.nfl.folds import make_folds
-        folds = make_folds(df, 2019, cadence_days=7)
+        from core.folds import make_folds
+        folds = make_folds(df, 2019, cadence_days=7, date_col="gameday",
+                           val_scope="oof_season", end_of_day=True)
         for f in folds:
             assert (f.val_end - f.val_start) == pd.Timedelta(days=6)

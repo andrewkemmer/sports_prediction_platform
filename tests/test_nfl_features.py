@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sports.nfl.folds import fold_summary, fold_table, make_folds
+from core.folds import fold_summary, fold_table, make_folds
 from sports.nfl.features import (
     build_game_features,
     build_slate_features,
@@ -141,7 +141,9 @@ class TestFolds:
         df = build_game_features(decided, make_pbp(make_schedule(2019, 2)))
         df = df.sort_values("gameday").reset_index(drop=True)
         folds = make_folds(df, study.oof_first_season,
-                           cadence_days=study.walk_forward.step_days)
+                           cadence_days=study.walk_forward.step_days,
+                           date_col="gameday",
+                           val_scope="oof_season", end_of_day=True)
         assert folds
         # training strictly prior to each validation window
         dates = pd.to_datetime(df["gameday"])
@@ -175,7 +177,9 @@ class TestFolds:
                        ignore_index=True)
         df["gameday"] = pd.to_datetime(df["gameday"])
         folds = make_folds(df, study.oof_first_season,
-                           cadence_days=study.walk_forward.step_days)
+                           cadence_days=study.walk_forward.step_days,
+                           date_col="gameday",
+                           val_scope="oof_season", end_of_day=True)
         val_ids = {gid for f in folds for gid in df.loc[f.val_idx,
                                                         "game_id"]}
         assert "warmup_1_x_y" not in val_ids

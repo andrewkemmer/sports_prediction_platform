@@ -92,7 +92,7 @@ def fold_signature(decided: pd.DataFrame,
     Two consumers must never build folds on different row sets; call sites
     assert agreement with this signature.
     """
-    from sports.mlb.training import walk_forward_splits
+    from core.folds import walk_forward_splits
     splits = walk_forward_splits(
         decided, retrain_cadence_days=retrain_cadence_days)
     seq = ([_canon_pk_str(x) for x in decided["game_pk"].tolist()]

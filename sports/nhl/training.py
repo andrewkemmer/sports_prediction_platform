@@ -25,7 +25,7 @@ from sports.nhl.feature_registry import (
     ensure_feature_columns,
     unavailable_columns,
 )
-from sports.nhl.folds import make_folds
+from core.folds import make_folds
 from sports.nhl.study_config import load_nhl_study
 
 logger = logging.getLogger(__name__)

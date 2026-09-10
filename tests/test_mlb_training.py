@@ -22,7 +22,8 @@ from sports.mlb.study_config import (
     MLBStudyError,
     load_mlb_study,
 )
-from sports.mlb.training import train_moneyline_ensemble, walk_forward_splits
+from core.folds import walk_forward_splits
+from sports.mlb.training import train_moneyline_ensemble
 from tests.mlb_fixtures import make_statcast_games
 
 D0 = date(2026, 4, 1)

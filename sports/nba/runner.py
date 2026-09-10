@@ -186,7 +186,7 @@ def run_nba_production(
             predict_slate,
             walk_forward_oof as ml_oof,
         )
-        from sports.nba.folds import make_folds
+        from core.folds import make_folds
 
         fold_list = make_folds(game_df, study.oof_first_season,
                                cadence_days=study.walk_forward.step_days,

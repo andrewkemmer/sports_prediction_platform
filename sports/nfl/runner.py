@@ -194,10 +194,12 @@ def run_nfl_production(
             predict_slate,
             walk_forward_oof as ml_oof,
         )
-        from sports.nfl.folds import fold_summary, fold_table, make_folds
+        from core.folds import fold_summary, fold_table, make_folds
 
         fold_list = make_folds(game_df, study.oof_first_season,
-                               cadence_days=study.walk_forward.step_days)
+                               cadence_days=study.walk_forward.step_days,
+                               date_col="gameday",
+                               val_scope="oof_season", end_of_day=True)
         result.n_folds = len(fold_list)
         if not fold_list:
             raise NFLRunnerError(

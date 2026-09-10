@@ -130,6 +130,20 @@ RUN_DROPPED_COLS: tuple[str, ...] = (
 
 assert len(RUN_FEATURE_COLS) == 53 and len(RUN_DROPPED_COLS) == 14
 
+# Phase 7.5 Task 2 — versioned per-model contracts (rename/remap ONLY).
+# The two frozen views above are now bound to explicit, independent model
+# contract versions so neither model can inherit the other's list. Feature
+# lists are carried over BYTE-IDENTICAL; the new identifiers reflect the
+# restructured contract format (explicit per-model declarations) and the
+# prior version strings are preserved for provenance.
+MONEYLINE_FEATURE_COLS: tuple[str, ...] = FEATURE_COLS
+MONEYLINE_CONTRACT_VERSION = "mlb-moneyline-v75"
+MARKET_FEATURE_COLS: tuple[str, ...] = RUN_FEATURE_COLS
+MARKET_CONTRACT_VERSION = "mlb-market-v75"
+#: Prior provenance versions (frozen 2026-09-07 reference state).
+PRIOR_MONEYLINE_CONTRACT_VERSION = "phase2"
+PRIOR_MARKET_CONTRACT_VERSION = "phase2"
+
 
 # ---------------------------------------------------------------------------
 # Registry

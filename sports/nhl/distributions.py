@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 from sports.nhl.features import tree_view
-from sports.nhl.folds import make_folds
+from core.folds import make_folds
 from sports.nhl.study_config import load_nhl_study
 
 logger = logging.getLogger(__name__)

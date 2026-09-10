@@ -35,7 +35,7 @@ from sports.mlb.feature_registry import (
     RUN_DROPPED_COLS,
     RUN_FEATURE_COLS,
 )
-from sports.mlb.training import walk_forward_splits
+from core.folds import walk_forward_splits
 
 logger = logging.getLogger(__name__)
 

@@ -20,6 +20,7 @@ as DEFERRED (never fabricated, never silently skipped).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 
@@ -147,8 +148,8 @@ def _slate_check(slate: pd.DataFrame, feats) -> bool:
 # ---------------------------------------------------------------------------
 def nba_adapters(study) -> dict[str, dict]:
     """NBA moneyline + market scope adapters on the real NBA store."""
+    from core.folds import make_folds
     from sports.nba.features import build_game_features, build_slate_features
-    from sports.nba.folds import make_folds
     from sports.nba.ingestion import load_schedule_cache
     from sports.nba.study_config import load_nba_study
 
@@ -194,7 +195,10 @@ def nba_adapters(study) -> dict[str, dict]:
         }
 
     from core.optimization.sports import default_scopes
-    ml, mk = default_scopes("nba", tuple(study.feature_columns))
+    ml, mk = default_scopes("nba", tuple(study.moneyline_feature_cols))
+    # Each scope binds its OWN contract's list (Phase 7.5 Task 2 versioned
+    # contracts — the market scope never inherits the moneyline's list).
+    mk = dataclasses.replace(mk, prod_features=tuple(study.market_feature_cols))
     return {"nba/moneyline": shared("moneyline", ml),
             "nba/market": shared("market", mk)}
 
@@ -204,8 +208,8 @@ def nba_adapters(study) -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 def nfl_adapters(study) -> dict[str, dict]:
     """NFL moneyline + market scope adapters on the real NFL store."""
+    from core.folds import make_folds
     from sports.nfl.features import build_game_features, build_slate_features
-    from sports.nfl.folds import make_folds
     from sports.nfl.ingestion import eligible_games, load_pbp
     from sports.nfl.runner import VENUE_CSV
     from sports.nfl.study_config import load_nfl_study
@@ -240,7 +244,8 @@ def nfl_adapters(study) -> dict[str, dict]:
     def build_folds(df: pd.DataFrame) -> list:
         folds = make_folds(df, study.oof_first_season,
                            cadence_days=study.walk_forward.step_days,
-                           date_col="gameday")
+                           date_col="gameday",
+                           val_scope="oof_season", end_of_day=True)
         return [(list(f.train_idx), list(f.val_idx)) for f in folds]
 
     def shared(kind: str, scope: ModelScope) -> dict:
@@ -263,7 +268,8 @@ def nfl_adapters(study) -> dict[str, dict]:
         }
 
     from core.optimization.sports import default_scopes
-    ml, mk = default_scopes("nfl", tuple(study.feature_columns))
+    ml, mk = default_scopes("nfl", tuple(study.moneyline_feature_cols))
+    mk = dataclasses.replace(mk, prod_features=tuple(study.market_feature_cols))
     return {"nfl/moneyline": shared("moneyline", ml),
             "nfl/market": shared("market", mk)}
 
@@ -273,8 +279,8 @@ def nfl_adapters(study) -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 def nhl_adapters(study) -> dict[str, dict]:
     """NHL moneyline + market scope adapters on the real NHL store."""
+    from core.folds import make_folds
     from sports.nhl.features import build_game_features, build_slate_features
-    from sports.nhl.folds import make_folds
     from sports.nhl.ingestion import load_schedule_cache
     from sports.nhl.study_config import load_nhl_study
 
@@ -320,7 +326,8 @@ def nhl_adapters(study) -> dict[str, dict]:
         }
 
     from core.optimization.sports import default_scopes
-    ml, mk = default_scopes("nhl", tuple(study.feature_columns))
+    ml, mk = default_scopes("nhl", tuple(study.moneyline_feature_cols))
+    mk = dataclasses.replace(mk, prod_features=tuple(study.market_feature_cols))
     return {"nhl/moneyline": shared("moneyline", ml),
             "nhl/market": shared("market", mk)}
 
@@ -348,6 +355,7 @@ def mlb_adapters(study=None) -> dict[str, dict]:
       run-engine regressand ``margin`` (home_score - away_score on the
       decided rows only — never attached to slate rows).
     """
+    from core.folds import walk_forward_splits
     from sports.mlb.feature_registry import (
         FEATURE_COLS,
         RUN_FEATURE_COLS,
@@ -357,7 +365,6 @@ def mlb_adapters(study=None) -> dict[str, dict]:
     )
     from sports.mlb.frames import enrich_elo_and_records, get_decided_frame
     from sports.mlb.study_config import load_mlb_study
-    from sports.mlb.training import walk_forward_splits
 
     study = study or load_mlb_study()
     cache = STORE / "mlb" / "raw" / "pitches.parquet"

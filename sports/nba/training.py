@@ -30,7 +30,7 @@ from sports.nba.feature_registry import (
     ensure_feature_columns,
     unavailable_columns,
 )
-from sports.nba.folds import make_folds
+from core.folds import make_folds
 from sports.nba.study_config import load_nba_study
 
 logger = logging.getLogger(__name__)

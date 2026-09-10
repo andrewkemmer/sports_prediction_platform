@@ -25,7 +25,7 @@ from sports.nfl.feature_registry import (
     ensure_feature_columns,
     unavailable_columns,
 )
-from sports.nfl.folds import make_folds
+from core.folds import make_folds
 from sports.nfl.study_config import load_nfl_study
 
 logger = logging.getLogger(__name__)
@@ -171,7 +171,8 @@ def walk_forward_oof(game_df: pd.DataFrame, study,
     df = game_df.sort_values(date_col).reset_index(drop=True)
     fold_list = make_folds(df, study.oof_first_season,
                            cadence_days=study.walk_forward.step_days,
-                           date_col=date_col)
+                           date_col=date_col,
+                           val_scope="oof_season", end_of_day=True)
 
     oof_parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
