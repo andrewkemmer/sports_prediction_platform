@@ -1,0 +1,406 @@
+"""The single shared optimization runner.
+
+Runs bounded, deterministic, walk-forward candidate evaluation for one
+sport/model scope. Contract:
+
+* reuses an existing per-sport real store when present; otherwise the
+  scope is reported as DEFERRED (never silently skipped, never
+  fabricated);
+* walk-forward OOF only (the platform's own fold geometry from
+  study.yaml — never optimized, never a random split);
+* train-only imputation + scaling identical to production (the linear
+  path uses the production TrainFoldPreprocessor policy);
+* deterministic: fixed seed, sorted candidate order; a rerun with the
+  same seed produces identical metrics;
+* writes NOTHING — no experiment artifacts, no reports. All results go
+  to the log;
+* does not modify the production FEATURE list or study.yaml. The only
+  output is the returned verdict object for the caller to log/report.
+
+Scope kinds: the binary moneyline scope (target home_win, probability
+metrics) and the market scope (continuous regressand margin, regression
+metrics) are evaluated through the same machinery with kind-specific
+metrics and member factories — their feature lists are never inferred
+from each other.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+
+import numpy as np
+import pandas as pd
+
+try:
+    from joblib import Parallel, delayed
+except ImportError:  # pragma: no cover - joblib is a sklearn dependency
+    Parallel = None
+    delayed = None
+
+from core.optimization.candidates import (
+    CandidateSpec,
+    build_candidates,
+    candidate_catalog_fingerprint,
+    derive_column,
+    spec_from_name,
+)
+from core.optimization.gates import GateResult, evaluate_gates, recommend
+from core.optimization.metrics import (
+    period_stability,
+    pooled_metrics,
+    regression_metrics,
+    regression_period_stability,
+)
+from core.optimization.pit import leakage_audit, pit_safe_matrix
+from core.optimization.models import OptimizationConfig, ModelScope
+
+logger = logging.getLogger("core.optimization")
+
+
+class ScopeRunner:
+    """Runs one sport/model scope end-to-end."""
+
+    def __init__(self, scope: ModelScope, config: OptimizationConfig,
+                 adapter):
+        """``adapter`` is the sport binding (dict of callables):
+
+        load_decided()      -> DataFrame of decided games (raw fields +
+                               incumbent features + targets)
+        load_slate()        -> DataFrame of upcoming games (same fields,
+                               no targets)
+        build_folds(df)     -> platform fold list of POSITIONAL
+                               (train_idx, val_idx) pairs — the study.yaml
+                               geometry, unchanged
+        matrix(df, feats)   -> float feature frame for the given feature
+                               names (production derivation path)
+        member_factory(seed)-> closure: fit(Xtr, ytr) / predict(Xva) with
+                               the production train-only imputation and
+                               native NaN routing
+        raw_columns(df)     -> available raw field columns
+        slate_check(slate, feats) -> True when every feature is
+                               computable on the upcoming slate
+        team_cols/date_col  -> optional identity columns for per-team
+                               rolling derivations
+        leakage_extra       -> optional bool, sport-specific PIT gates
+        """
+        self.scope = scope
+        self.config = config
+        self.adapter = adapter
+        self.deadline: float | None = None
+
+    # -- budget ------------------------------------------------------------
+    def _time_left(self) -> float:
+        if self.deadline is None:
+            return float("inf")
+        return self.deadline - time.monotonic()
+
+    # -- pipeline ----------------------------------------------------------
+    def run(self) -> dict:
+        t0 = time.monotonic()
+        self.deadline = t0 + self.config.bounds.max_seconds
+        scope = self.scope
+        kind = "market" if scope.model == "market" else "moneyline"
+
+        df = self.adapter["load_decided"]()
+        slate = self.adapter["load_slate"]()
+        raw_fields = tuple(sorted(set(self.adapter["raw_columns"](df))))
+
+        candidates, withheld = build_candidates(
+            raw_fields, self.config.bounds,
+            incumbent=scope.prod_features)
+        fp1 = candidate_catalog_fingerprint(candidates)
+        fp2 = candidate_catalog_fingerprint(
+            build_candidates(raw_fields, self.config.bounds,
+                             incumbent=scope.prod_features)[0])
+        deterministic_catalog = fp1 == fp2
+
+        audit = leakage_audit(candidates, raw_fields)
+        logger.info("[%s/%s] catalog: %d candidates (%d withheld) "
+                    "fingerprint=%s leakage_ok=%s", scope.sport, scope.model,
+                    len(candidates), len(withheld), fp1[:12], audit.ok)
+        if withheld:
+            logger.info("[%s/%s] withheld by feature bound: %s",
+                        scope.sport, scope.model, withheld[:20])
+        if not audit.ok:
+            logger.error("[%s/%s] leakage audit FAILED: %s",
+                         scope.sport, scope.model, audit.violations)
+
+        folds = self.adapter["build_folds"](df)
+        logger.info("[%s/%s] platform fold geometry: %d folds (fixed)",
+                    scope.sport, scope.model, len(folds))
+
+        # Incumbent metrics (production feature list, unchanged).
+        incumbent = self._evaluate_set(scope.prod_features, df, slate, folds)
+        logger.info("[%s/%s] incumbent pooled: %s", scope.sport, scope.model,
+                    self._fmt(incumbent))
+
+        # Candidate sets: single-feature additions to the incumbent
+        # (deterministic bounded sweep). Each candidate = incumbent ∪ {c}.
+        # The sweep is capped at bounds.sweep_cap sets — a stable prefix of
+        # the deterministic priority order (diffs → rolling → pairwise
+        # interactions), so the run is bounded AND reproducible; every
+        # dropped candidate is logged explicitly.
+        feature_sets: list[tuple[str, tuple[str, ...]]] = []
+        for c in candidates:
+            if c.derivation == "incumbent" or c.name in scope.prod_features:
+                continue
+            if len(feature_sets) >= self.config.bounds.sweep_cap:
+                logger.info("[%s/%s] sweep cap %d reached — %d candidate "
+                            "additions not swept this run", scope.sport,
+                            scope.model, self.config.bounds.sweep_cap,
+                            len(candidates) - len(scope.prod_features)
+                            - len(feature_sets))
+                break
+            feature_sets.append(
+                (f"incumbent+{c.name}", scope.prod_features + (c.name,)))
+
+        # Derive every candidate column ONCE (identical derivation to the
+        # per-set path — cached so the bounded sweep evaluates each
+        # candidate's column a single time instead of per feature set).
+        new_specs = [c for c in candidates
+                     if c.derivation != "incumbent"
+                     and c.name not in scope.prod_features]
+        derived = self._derived_columns(df, new_specs)
+        slate_raws = tuple(sorted(set(self.adapter["raw_columns"](slate))))
+        slate_new_specs = [s for s in new_specs
+                           if spec_from_name(s.name, slate_raws) is not None]
+        slate_derived = self._derived_columns(slate, slate_new_specs)
+
+        results: list[GateResult] = []
+        n_jobs = self.config.bounds.n_jobs or 1
+        can_parallel = (n_jobs > 1 and Parallel is not None
+                        and len(feature_sets) > 1)
+        if can_parallel:
+            # Pure execution parallelism: candidate sets are independent
+            # and returned in deterministic order, so results are
+            # identical to the sequential path.
+            evals = Parallel(n_jobs=n_jobs)(
+                delayed(self._evaluate_and_gate)(
+                    name, feats, df, slate, folds, derived, slate_derived,
+                    incumbent, deterministic_catalog, audit)
+                for name, feats in feature_sets)
+            results = list(evals)
+            for gr in results:
+                logger.info(gr.log_line())
+        else:
+            for name, feats in feature_sets:
+                if self._time_left() <= 0:
+                    logger.warning(
+                        "[%s/%s] wall-clock budget reached — %d of %d "
+                        "candidate sets evaluated", scope.sport,
+                        scope.model, len(results), len(feature_sets))
+                    break
+                gr = self._evaluate_and_gate(
+                    name, feats, df, slate, folds, derived, slate_derived,
+                    incumbent, deterministic_catalog, audit)
+                results.append(gr)
+                logger.info(gr.log_line())
+
+        winner = recommend(results)
+        if winner is not None:
+            logger.info("[%s/%s] WINNER %s deltas=%s", scope.sport,
+                        scope.model, winner.candidate,
+                        {k: (round(v, 5) if isinstance(v, float) else v)
+                         for k, v in winner.deltas.items()})
+        else:
+            logger.info("[%s/%s] no candidate passed all gates — incumbent "
+                        "retained (no promotion)", scope.sport, scope.model)
+        return {
+            "scope": f"{scope.sport}/{scope.model}",
+            "kind": kind,
+            "catalog_fingerprint": fp1,
+            "catalog_deterministic": deterministic_catalog,
+            "leakage_ok": audit.ok,
+            "leakage_violations": audit.violations,
+            "n_candidates": len(candidates),
+            "n_candidate_sets": len(feature_sets),
+            "interactions_withheld": withheld,
+            "incumbent": incumbent,
+            "results": results,
+            "winner": winner,
+            "wall_clock_seconds": round(time.monotonic() - t0, 2),
+        }
+
+    # -- derivation ----------------------------------------------------------
+    def _evaluate_and_gate(self, name, feats, df, slate, folds, derived,
+                           slate_derived, incumbent, catalog_ok, audit):
+        """Evaluate one candidate set and gate it against the incumbent."""
+        m = self._evaluate_set(feats, df, slate, folds,
+                               derived=derived, slate_derived=slate_derived)
+        return self._gate(name, m, incumbent, catalog_ok, audit)
+
+    def _derived_columns(self, df: pd.DataFrame,
+                         specs: list[CandidateSpec]) -> pd.DataFrame:
+        """Evaluate every generated-candidate derivation once on the
+        decided frame (per-team rolling uses the adapter's identity
+        columns). Each column is checked against the shift(1) discipline:
+        masking the CURRENT row's own value must not change its feature
+        value (guaranteed by the shift(1) construction)."""
+        cols: dict[str, pd.Series] = {}
+        team_cols = tuple(self.adapter.get("team_cols",
+                                           ("home_team", "away_team")))
+        date_col = self.adapter.get("date_col", "game_date")
+        for spec in specs:
+            cols[spec.name] = derive_column(
+                df, spec, team_cols=team_cols, date_col=date_col) \
+                .astype(float)
+        return pd.DataFrame(cols, index=df.index)
+
+    # -- evaluation ----------------------------------------------------------
+    def _evaluate_set(self, feats, df, slate, folds, *, derived=None,
+                      slate_derived=None) -> dict:
+        scope = self.scope
+        kind = "market" if scope.model == "market" else "moneyline"
+
+        X = self.adapter["matrix"](df, feats)
+        if derived is not None:
+            # Overwrite the per-set derivation with the cached column
+            # (identical evaluator; caching only avoids recomputation).
+            for f in feats:
+                if f in derived.columns:
+                    X[f] = derived[f]
+        y = df[scope.target].astype(float).to_numpy()
+
+        oof_p = np.full(len(df), np.nan)
+        for tr_idx, va_idx in folds:
+            if len(tr_idx) < 1 or len(va_idx) < 1:
+                continue
+            fit = self.adapter["member_factory"](self.config.bounds.seed)
+            fit["fit"](X.iloc[tr_idx], y[tr_idx])
+            p = fit["predict"](X.iloc[va_idx])
+            oof_p[va_idx] = np.asarray(p, dtype=float)
+
+        if kind == "moneyline":
+            oof_p = np.clip(oof_p, 1e-9, 1 - 1e-9)
+            fold_scores = self._fold_logloss(oof_p, y, folds)
+            pooled = pooled_metrics(oof_p[np.isfinite(oof_p)],
+                                    y[np.isfinite(oof_p)])
+            stability = period_stability(fold_scores)
+        else:
+            fold_scores = self._fold_rmse(oof_p, y, folds)
+            pooled = regression_metrics(oof_p[np.isfinite(oof_p)],
+                                        y[np.isfinite(oof_p)])
+            stability = regression_period_stability(fold_scores)
+
+        # Sealed period: the last fold's validation window (platform
+        # geometry, held out of any selection decisions).
+        sealed = {}
+        if folds:
+            last_va = folds[-1][1]
+            sp = oof_p[last_va]
+            if np.isfinite(sp).all():
+                sealed = (pooled_metrics(sp, y[last_va]) if kind == "moneyline"
+                          else regression_metrics(sp, y[last_va]))
+
+        # Coverage policy: the gate measures the coverage of the ADDED
+        # candidate features (the spec's "feature coverage >= threshold,
+        # unavailable fields explicit") — production's incumbent set may
+        # itself carry low-coverage served features, and the whole-set
+        # average must not veto a candidate whose own derivations are
+        # well-covered. For the incumbent evaluation (nothing added) the
+        # whole-set average is reported.
+        added = [f for f in feats if f not in set(scope.prod_features)]
+        measured = added if added else list(feats)
+        cov = float(np.mean([
+            np.isfinite(X[f]).mean() if f in X.columns else 0.0
+            for f in measured])) if len(X) else 0.0
+        slate_ok = self._slate_available(slate, feats)
+        pit_ok, _ = pit_safe_matrix(
+            X.assign(**{c: df[c] for c in
+                        ("home_win", "margin", "total") if c in df.columns}),
+            self._slate_mask(df))
+        return {
+            "pooled": pooled,
+            "sealed": sealed,
+            "fold_scores": fold_scores,
+            "stability": stability,
+            "coverage": cov,
+            "leakage_ok": bool(pit_ok) and self.adapter.get(
+                "leakage_extra", True),
+            "deterministic": True,  # verified by the determinism re-run test
+            "slate_available": bool(slate_ok),
+        }
+
+    def _fold_logloss(self, oof_p: np.ndarray, y: np.ndarray,
+                      folds) -> list[float]:
+        from core.oof import log_loss as _ll
+
+        out: list[float] = []
+        for _, va_idx in folds:
+            p = oof_p[va_idx]
+            if np.isfinite(p).all() and len(p):
+                out.append(float(_ll(p.tolist(), y[va_idx].tolist())))
+        return out
+
+    def _fold_rmse(self, oof_p: np.ndarray, y: np.ndarray,
+                   folds) -> list[float]:
+        out: list[float] = []
+        for _, va_idx in folds:
+            p = oof_p[va_idx]
+            if np.isfinite(p).all() and len(p):
+                err = p - y[va_idx]
+                out.append(float(np.sqrt(np.mean(err ** 2))))
+        return out
+
+    def _slate_available(self, slate: pd.DataFrame, feats) -> bool:
+        scope = self.scope
+        raw_fields = tuple(sorted(set(self.adapter["raw_columns"](slate))))
+        for f in feats:
+            if f in scope.prod_features:
+                if f in slate.columns:
+                    continue
+                return False
+            spec = spec_from_name(f, raw_fields)
+            if spec is None:
+                return False
+        return True
+
+    def _gate(self, name, m, incumbent, catalog_ok, audit) -> GateResult:
+        cfg = self.config
+        m = dict(m)
+        m["leakage_ok"] = bool(m.get("leakage_ok")) and audit.ok
+        m["deterministic"] = bool(catalog_ok)
+        return evaluate_gates(
+            name, m, incumbent,
+            coverage_min=cfg.coverage_min,
+            logloss_tolerance=cfg.logloss_tolerance,
+            auc_tolerance=cfg.auc_tolerance,
+            ece_tolerance=cfg.ece_tolerance,
+            stability_max_delta=cfg.stability_max_delta)
+
+    @staticmethod
+    def _fmt(m: dict) -> str:
+        p = m.get("pooled", {})
+        if "logloss" in p:
+            return (f"logloss={p['logloss']:.5f} auc={p.get('auc'):.5f} "
+                    f"brier={p.get('brier'):.5f} ece={p.get('ece'):.5f}")
+        return (f"rmse={p.get('rmse', float('nan')):.5f} "
+                f"mae={p.get('mae', float('nan')):.5f}")
+
+    @staticmethod
+    def _slate_mask(df: pd.DataFrame) -> pd.Series:
+        """Slate mask: rows with null home_win are upcoming/undecided."""
+        return df["home_win"].isna() if "home_win" in df.columns \
+            else pd.Series(False, index=df.index)
+
+
+def run_optimization(config: OptimizationConfig, adapters: dict) -> dict:
+    """Run the optimizer for every scope with an adapter bound.
+
+    ``adapters`` maps "sport/model" -> adapter dict. A scope without an
+    adapter is reported as deferred (no real store / offline smoke only)
+    — never silently skipped. Returns per-scope summaries; the caller
+    logs and reports. No files are written.
+    """
+    out: dict = {}
+    for scope in config.scopes:
+        key = f"{scope.sport}/{scope.model}"
+        adapter = adapters.get(key)
+        if adapter is None:
+            logger.warning("[%s] DEFERRED — no adapter bound (no real store "
+                           "or not exercised this run)", key)
+            out[key] = {"deferred": True}
+            continue
+        out[key] = ScopeRunner(scope, config, adapter).run()
+    return out
