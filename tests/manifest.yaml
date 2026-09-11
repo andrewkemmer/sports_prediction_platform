@@ -1,0 +1,274 @@
+# tests/manifest.yaml — closed allowlist for the tests/ tree (Phase 7.5c1).
+#
+# Every .py file under tests/ has an entry. Non-Python support data under
+# tests/fixtures/ is listed as a data family. Hygiene enforcement lives in
+# tests/core/test_manifest_hygiene.py and runs inside the standard suite.
+#
+# Golden-hash note: permanent regression tests carry reviewed in-module
+# static literals (fold counts, fingerprint payload hash, matrix hashes).
+# Tests never regenerate, rewrite, or persist these values; any literal
+# change requires explicit reviewer approval in the phase report before
+# commit. There is NO baseline JSON, NO docs/audits/, and NO durable
+# evidence/hash file anywhere in the repository.
+
+version: 1
+classes: [production, governance, support]
+
+required_topics:
+  - imports_and_syntax
+  - date_validation
+  - start_end_semantics
+  - full_repull_semantics
+  - duckdb_schema
+  - point_in_time_correctness
+  - leakage_prevention
+  - fold_determinism
+  - oof_population
+  - feature_contract_validation
+  - model_output_schema
+  - moneyline_probability_range
+  - score_distribution_normalization
+  - p_push
+  - p_tie
+  - market_normalization
+  - artifact_schemas
+  - frontend_compatibility
+  - incremental_cache_updates
+  - full_repull_behavior
+  - retention_allowlist
+  - safe_deletion
+
+forbidden_name_tokens:
+  [debug, probe, verify_, check_, adhoc, oneoff, one_off, scratch, tmp,
+   experiment, ablation, evidence, report, phase]
+forbidden_name_date_pattern: '(^|[_-])20\d{2}(\d{2})?([_.-]|$)'
+
+# Non-Python support data (exempt from the filename token/date rules):
+# only under tests/fixtures/.
+fixtures_data:
+  - tests/fixtures/mlb_artifact_schemas.json
+  - tests/fixtures/nba_artifact_schemas.json
+  - tests/fixtures/nfl_artifact_schemas.json
+  - tests/fixtures/nhl_artifact_schemas.json
+  - tests/fixtures/sample_artifacts/nba/nba_calibration_20270105.json
+  - tests/fixtures/sample_artifacts/nba/nba_model_monitor_20270105.json
+  - tests/fixtures/sample_artifacts/nba/nba_moneyline_v1_20270105.json
+  - tests/fixtures/sample_artifacts/nba/nba_player_matchup_20270105.json
+  - tests/fixtures/sample_artifacts/nba/nba_power_rankings_20270105.csv
+  - tests/fixtures/sample_artifacts/nba/nba_run_engine_markets_20270105.csv
+  - tests/fixtures/sample_artifacts/nba/nba_run_engine_markets_20270105.meta.json
+  - tests/fixtures/sample_artifacts/nba/nba_run_engine_monitor_20270105.json
+  - tests/fixtures/sample_artifacts/nba/nba_shap_game_20270105_0022600001.csv
+
+files:
+  # --- package plumbing ---
+  - path: tests/__init__.py
+    class: support
+    description: package marker
+  - path: tests/core/__init__.py
+    class: support
+    description: core test subpackage marker
+  - path: tests/conftest.py
+    class: support
+    description: shared pytest configuration
+
+  # --- governance ---
+  - path: tests/core/test_spec_guardrails.py
+    class: governance
+    description: structural/AST guardrail enforcement (GUARDRAILS.md rules)
+    topics: []
+  - path: tests/core/test_manifest_hygiene.py
+    class: governance
+    description: manifest closed-allowlist + tests/ hygiene enforcement
+    topics: []
+
+  # --- golden-literal evidence tests (Phase 7.5b; values are in-module
+  # --- reviewed static literals, never regenerated) ---
+  - path: tests/core/test_fold_fingerprints.py
+    class: production
+    description: >
+      Fold fingerprints recomputed per sport against pinned in-module
+      incumbents (MLB 48, NBA 272, NFL 124, NHL 39; payload hash pinned).
+    topics: [fold_determinism]
+  - path: tests/core/test_matrix_hashes.py
+    class: production
+    description: >
+      All 8 scope feature-matrix hashes recomputed against pinned
+      in-module incumbents.
+    topics: [feature_contract_validation]
+
+  # --- sport fixture/support modules ---
+  - path: tests/mlb_fixtures.py
+    class: support
+    description: MLB synthetic game/store fixtures
+    topics: []
+  - path: tests/nba_fixtures.py
+    class: support
+    description: NBA synthetic game/store fixtures
+    topics: []
+  - path: tests/nfl_fixtures.py
+    class: support
+    description: NFL synthetic game/store fixtures
+    topics: []
+  - path: tests/nhl_fixtures.py
+    class: support
+    description: NHL synthetic game/store fixtures
+    topics: []
+
+  # --- core production-contract tests ---
+  - path: tests/test_config.py
+    class: production
+    description: core.config contracts
+    topics: [imports_and_syntax, start_end_semantics]
+  - path: tests/test_contracts.py
+    class: production
+    description: core.contracts artifact/model-output contracts
+    topics: [feature_contract_validation, model_output_schema]
+  - path: tests/test_dates.py
+    class: production
+    description: core.dates parsing/validation
+    topics: [date_validation]
+  - path: tests/test_folds.py
+    class: production
+    description: core.folds walk-forward geometry/determinism
+    topics: [fold_determinism]
+  - path: tests/test_frontend.py
+    class: production
+    description: frontend registry, loader, board rendering contracts
+    topics: [frontend_compatibility]
+  - path: tests/test_markets.py
+    class: production
+    description: >
+      core.markets settlement + probability normalization (includes the
+      merged TIE/PUSH and configurable-settlement suite).
+    topics: [p_push, p_tie, market_normalization, moneyline_probability_range]
+  - path: tests/test_mlb_artifact_schemas.py
+    class: production
+    description: MLB artifact schemas vs immutable real-sample fixtures
+    topics: [artifact_schemas]
+  - path: tests/test_mlb_artifacts.py
+    class: production
+    description: MLB artifact writers pinned to schema fixtures
+    topics: [artifact_schemas, model_output_schema]
+  - path: tests/test_mlb_features.py
+    class: production
+    description: MLB feature factory PIT/leakage/schema contracts
+    topics: [duckdb_schema, point_in_time_correctness, leakage_prevention]
+  - path: tests/test_mlb_ingestion.py
+    class: production
+    description: MLB ingestion caching + incremental/full-repull behavior
+    topics: [incremental_cache_updates, full_repull_behavior]
+  - path: tests/test_mlb_runner.py
+    class: production
+    description: MLB runner env gates, retention gating, payload helpers
+    topics: [start_end_semantics, safe_deletion]
+  - path: tests/test_mlb_training.py
+    class: production
+    description: MLB training/OOF/fold/study contracts
+    topics: [oof_population, fold_determinism, leakage_prevention]
+  - path: tests/test_nba_features.py
+    class: production
+    description: NBA feature PIT/leakage/slate contracts
+    topics: [point_in_time_correctness, leakage_prevention]
+  - path: tests/test_nba_ingestion.py
+    class: production
+    description: NBA ingestion caching + rebuild behavior
+    topics: [incremental_cache_updates, full_repull_behavior]
+  - path: tests/test_nba_runner.py
+    class: production
+    description: NBA runner/adapter/artifact/SHAP/retention/env gates
+    topics: [artifact_schemas, safe_deletion, score_distribution_normalization]
+  - path: tests/test_nba_settlement.py
+    class: production
+    description: NBA settlement + distribution normalization contracts
+    topics: [p_tie, score_distribution_normalization, market_normalization]
+  - path: tests/test_nba_training.py
+    class: production
+    description: NBA training/OOF/calibration contracts
+    topics: [oof_population, fold_determinism]
+  - path: tests/test_nfl_features.py
+    class: production
+    description: NFL feature/fold/leakage contracts
+    topics: [point_in_time_correctness, leakage_prevention, fold_determinism]
+  - path: tests/test_nfl_ingestion.py
+    class: production
+    description: NFL ingestion caching + equivalence behavior
+    topics: [incremental_cache_updates, full_repull_behavior]
+  - path: tests/test_nfl_runner.py
+    class: production
+    description: NFL runner/adapter/artifact/policy contracts
+    topics: [artifact_schemas, full_repull_semantics]
+  - path: tests/test_nfl_settlement.py
+    class: production
+    description: NFL settlement TIE/PUSH semantics via core.markets
+    topics: [p_push, p_tie, market_normalization]
+  - path: tests/test_nfl_training.py
+    class: production
+    description: NFL training/OOF/determinism/calibration contracts
+    topics: [oof_population, fold_determinism, leakage_prevention]
+  - path: tests/test_nhl_features.py
+    class: production
+    description: NHL feature PIT/leakage/slate contracts
+    topics: [point_in_time_correctness, leakage_prevention]
+  - path: tests/test_nhl_ingestion.py
+    class: production
+    description: NHL ingestion caching + window behavior
+    topics: [incremental_cache_updates, full_repull_behavior]
+  - path: tests/test_nhl_runner.py
+    class: production
+    description: NHL runner/adapter/artifact/SHAP/retention/env gates
+    topics: [artifact_schemas, safe_deletion, score_distribution_normalization]
+  - path: tests/test_nhl_settlement.py
+    class: production
+    description: NHL settlement + distribution contracts
+    topics: [p_tie, score_distribution_normalization, market_normalization]
+  - path: tests/test_nhl_training.py
+    class: production
+    description: NHL training/OOF/calibration contracts
+    topics: [oof_population, fold_determinism]
+  - path: tests/test_oof.py
+    class: production
+    description: core.oof pooling/OOF contracts
+    topics: [oof_population]
+  - path: tests/test_optimization_candidates.py
+    class: production
+    description: optimizer candidate catalog/harness contracts
+    topics: [feature_contract_validation]
+  - path: tests/test_optimization_mlb_adapter.py
+    class: production
+    description: MLB optimization adapter wiring/scope contracts
+    topics: [feature_contract_validation]
+  - path: tests/test_prediction_window.py
+    class: production
+    description: core.prediction_window cutoff semantics
+    topics: [start_end_semantics, date_validation]
+  - path: tests/test_retention.py
+    class: production
+    description: >
+      core.retention planning + production execution (includes the merged
+      production-retention suite; 10-day literal is B-003 pending, 7.5d).
+    topics: [retention_allowlist, safe_deletion]
+  - path: tests/test_runconfig.py
+    class: production
+    description: mandatory run-variable validation contracts
+    topics: [start_end_semantics, full_repull_semantics]
+  - path: tests/test_scope_contracts.py
+    class: production
+    description: per-sport versioned scope-contract ownership/bindings
+    topics: [feature_contract_validation]
+  - path: tests/test_storage.py
+    class: production
+    description: core.storage store schema/robustness
+    topics: [duckdb_schema, imports_and_syntax]
+  - path: tests/test_study.py
+    class: production
+    description: core.study walk-forward study contracts
+    topics: [fold_determinism, oof_population]
+  - path: tests/test_validation.py
+    class: production
+    description: core.validation numeric/PIT validation
+    topics: [point_in_time_correctness, leakage_prevention]
+  - path: tests/test_warmup.py
+    class: production
+    description: core.warmup eligibility contracts
+    topics: [date_validation, start_end_semantics]

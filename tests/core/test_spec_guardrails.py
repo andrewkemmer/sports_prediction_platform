@@ -129,7 +129,8 @@ def test_no_new_top_level_directories():
 
 def test_tests_top_level_contains_only_permitted_entries():
     base = REPO_ROOT / "tests"
-    permitted_prefixes = ("__init__.py", "conftest.py", "fixtures")
+    permitted_prefixes = ("__init__.py", "conftest.py", "fixtures",
+                          "manifest.yaml")
     bad = []
     for p in base.iterdir():
         name = p.name

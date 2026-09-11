@@ -25,6 +25,7 @@ guardrail-test strict xfails must exist here by ID.
 | 7.5d | Blocker remediation: B-001…B-007, B-009 (see blocker table below; B-008 closed in 7.5b) | PENDING |
 | 7.6a | Repository structure alignment (per approved Phase 7.6 plan; not started) | PENDING |
 | 7.6b | Structure alignment verification + follow-through | PENDING |
+| 7.5c1 | Tests lockdown: permanent-test governance, closed manifest (`tests/manifest.yaml`), hygiene enforcement (`tests/core/test_manifest_hygiene.py`), duplicate consolidation (test_markets_tie_push → test_markets; test_retention_production → test_retention), CI workflow, GUARDRAILS §16 amendment | EXECUTED (pending commit) |
 
 ## Byproduct ledger
 

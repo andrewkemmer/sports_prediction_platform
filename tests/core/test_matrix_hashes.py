@@ -19,8 +19,15 @@ width for any scope fails here.
 from __future__ import annotations
 
 import hashlib
-from datetime import date
 from pathlib import Path
+
+# Pinned season ceiling (capture-time value). The Phase 7.5 evidence
+# capture ran in 2026-09, when the historical ``date.today()``-derived
+# ceiling evaluated to 2027; the value is pinned so the test is fully
+# deterministic (no wall-clock dependence) and reproduces the
+# capture-time season list exactly. Any change requires explicit
+# reviewer approval in a phase report.
+PINNED_CURRENT_SEASON = 2027
 
 import numpy as np
 import pandas as pd
@@ -115,8 +122,7 @@ def _nfl():
 
     study = load_nfl_study()
     cache = Path("store/nfl/raw")
-    current_season = date.today().year + 1 if date.today().month >= 3 \
-        else date.today().year
+    current_season = PINNED_CURRENT_SEASON
     seasons = sorted(set(
         list(range(study.oof_first_season, current_season + 1))
         + list(study.warmup_seasons)))

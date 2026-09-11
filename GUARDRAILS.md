@@ -163,13 +163,48 @@ for the byproduct ledger). Production code never imports `experiments/`;
 
 ## 16. Tests directory
 
-`tests/` is flat and permanent: only `__init__.py`, `conftest.py`,
-per-sport fixture modules (`*_fixtures.py`), `fixtures/`, and `test_*.py`
-files at the top level. Filenames carrying phase, certification, ablation,
-probe, or sweep markers (`*phase*`, `*cert*`, `*ablation*`, `*probe*`,
-`*sweep*`) are forbidden — one-off tests do not belong in the permanent
-suite. A `tests/core/` subpackage is reserved for structural guardrail
-tests.
+`tests/` is the closed, manifest-enforced production-contract suite —
+not a scratchpad or evidence generator. The closed allowlist is
+`tests/manifest.yaml`; hygiene is enforced inside the standard suite by
+`tests/core/test_manifest_hygiene.py`.
+
+1. Every file under `tests/` is manifest-listed; unlisted files are
+   violations. The manifest lists itself, `conftest.py`, `__init__.py`
+   files, `tests/fixtures/` support data, and all `*_fixtures.py`
+   modules as support.
+2. The agent MUST NOT create new files under `tests/`; extend existing
+   manifest-listed modules. A new permanent test file requires (a)
+   production-contract justification, (b) a manifest entry, and (c)
+   explicit human approval.
+3. One-off checks, probes, and evidence generators are forbidden in
+   `tests/` (locations per the Permanent-Use Test). Evidence
+   generators, probes, one-off validators, and phase-report helpers
+   belong in inline commands, pytest `tmp_path`, `/tmp`, or gitignored
+   scratch deleted after use — never `tests/`.
+4. No `__main__` blocks, argparse, network imports, artifact writes
+   (outside pytest `tmp_path`), report outputs, or experiment imports
+   under `tests/`. Deterministic only: fixed synthetic inputs, seeded
+   randomness, no wall clock.
+5. Tests are never invoked by the production runner; production never
+   imports from `tests/`; no experiment code is imported from `tests/`.
+6. Any session that modifies `tests/` must finish by running
+   `python3 -m pytest tests/ --strict-markers` green.
+7. Durable audit/evidence/baseline/generated-hash-manifest files are
+   FORBIDDEN repo-wide. Phase evidence is process-based: the phase
+   prompt, validation report, approved commit, git tag, commit message,
+   pushed SHA. Permitted files: `GUARDRAILS.md`, `docs/TRACKER.md`,
+   `tests/manifest.yaml`, production contracts, production config.
+8. Permanent regression tests may contain reviewed in-module expected
+   literals; they never regenerate, rewrite, or export them. Any literal
+   change requires reviewer approval in the phase report.
+9. `.github/` (workflows only) is on the allowed-paths list for CI wiring.
+
+Layout rules remain: `__init__.py`, `conftest.py`, per-sport fixture
+modules (`*_fixtures.py`), `fixtures/`, and `test_*.py` files at the top
+level; a `tests/core/` subpackage for structural guardrail tests.
+Filenames carrying phase, certification, ablation, probe, or sweep
+markers are forbidden — one-off tests do not belong in the permanent
+suite.
 
 ## 17. Naming and identity discipline
 
