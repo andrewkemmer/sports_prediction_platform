@@ -11,6 +11,7 @@ Blockers referenced in this file live in docs/TRACKER.md (B-001…B-007).
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -326,30 +327,82 @@ def test_core_never_imports_sports_anywhere():
 # 9. dependency manifest (blocker-linked strict xfails)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-006: no pinned/locked dependency manifest committed "
-           "(pyproject.toml is lower-bound-only); remediation in Phase 7.5d",
-)
-def test_dependency_manifest_pins_versions():
-    """B-006: dependencies are declared but not pinned/locked.
+def _norm_pkg(name: str) -> str:
+    """PEP 503-normalized package name for cross-manifest comparison."""
+    return name.strip().lower().replace("_", "-")
 
-    pyproject.toml declares lower bounds only and no lock file exists.
-    Passes once a pinned manifest (lock file or exact-pinned requirements)
-    is committed in Phase 7.5d.
-    """
-    lock_files = ["requirements.lock", "requirements.txt", "uv.lock",
-                  "poetry.lock", "Pipfile.lock"]
-    if any((REPO_ROOT / f).exists() for f in lock_files):
-        # A lock file exists — verify it actually pins versions.
-        for f in lock_files:
-            p = REPO_ROOT / f
-            if not p.exists():
+
+def _ver_tuple(v: str) -> tuple[int, ...]:
+    """Numeric version key: '1.26' -> (1, 26); tolerates suffix junk."""
+    parts: list[int] = []
+    for chunk in v.strip().split("."):
+        digits = ""
+        for ch in chunk:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts) or (0,)
+
+
+def _floor_le_pin(floor: str, pin: str) -> bool:
+    """True when the advisory floor does not exceed the exact pin."""
+    f, p = _ver_tuple(floor), _ver_tuple(pin)
+    width = max(len(f), len(p))
+    f += (0,) * (width - len(f))
+    p += (0,) * (width - len(p))
+    return f <= p
+
+
+def test_dependency_manifest_pins_versions():
+    """B-006 (resolved in Phase 7.5d): the committed dependency manifest is
+    exactly pinned. EVERY ``requirements*.txt`` file at the repo root must
+    pin every line with ``==`` — no unpinned entries, no range specifiers.
+    Additionally, every ``>=`` floor declared in the ``pyproject.toml``
+    dependency sections must not exceed the corresponding exact pin in
+    ``requirements-dev.txt`` — advisory floors may never exceed the pinned
+    versions (a floor above the pin would contradict the authoritative
+    manifest)."""
+    req_files = sorted(REPO_ROOT.glob("requirements*.txt"))
+    assert req_files, "no requirements*.txt dependency manifest committed"
+    unpinned: list[str] = []
+    pins: dict[str, str] = {}
+    for req in req_files:
+        for i, line in enumerate(req.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
                 continue
-            content = p.read_text()
-            assert "==" in content, f"{f} exists but pins no exact versions"
-        return
-    raise AssertionError("no pinned dependency manifest committed")
+            if "==" not in stripped:
+                unpinned.append(f"{req.name} line {i}: {stripped}")
+                continue
+            name, version = stripped.split("==", 1)
+            name = _norm_pkg(name)
+            if not name or any(c.isspace() for c in name):
+                unpinned.append(f"{req.name} line {i}: {stripped}")
+                continue
+            pins[name] = version.split(";")[0].strip()
+    assert not unpinned, (
+        "dependency manifest contains unpinned/non-==-entries: " + str(unpinned))
+
+    # pyproject.toml advisory floors must be <= the exact pins.
+    text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    floors = re.findall(r'"([A-Za-z0-9_.-]+)\s*>=\s*([0-9][^"]*)"', text)
+    assert floors, "pyproject.toml dependency floors not found (parse drift?)"
+    violations: list[str] = []
+    for pkg, floor in floors:
+        norm = _norm_pkg(pkg)
+        if norm not in pins:
+            # Frontend-only extras (streamlit, altair) have no pin; that is
+            # documented as advisory in the pyproject header. Flag a floor
+            # above a MISSING pin only when the package IS pinned nowhere.
+            continue
+        if not _floor_le_pin(floor, pins[norm]):
+            violations.append(f"{pkg}: floor >={floor} exceeds pin =={pins[norm]}")
+    assert not violations, (
+        "pyproject.toml advisory floors exceed pinned versions: " + str(violations))
 
 
 # ---------------------------------------------------------------------------

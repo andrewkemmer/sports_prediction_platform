@@ -1,14 +1,20 @@
-pytest>=8.0
-pytest-cov>=5.0
-pandas>=2.0
-numpy>=1.26
-requests>=2.31
-duckdb>=1.0
-pyarrow>=16.0
-pybaseball>=2.2
-scikit-learn>=1.4
-lightgbm>=4.0
-xgboost>=2.0
-scipy>=1.11
-pyyaml>=6.0
-ruff>=0.6
+# Pinned dependency manifest (Phase 7.5d / B-006 — hardened rule 9).
+# Every line is an exact pin. Installed versions are resolved from the
+# certification environment; pytest-cov and ruff (dev-only tooling not
+# imported by the suite) are pinned at floor-compatible stable releases
+# verified available on the package index. Version bumps require a
+# reviewed phase change — never silent drift.
+pytest==9.1.1
+pytest-cov==5.0.0
+pandas==2.3.3
+numpy==2.2.6
+requests==2.34.2
+duckdb==1.5.5
+pyarrow==25.0.1
+pybaseball==2.2.7
+scikit-learn==1.7.2
+lightgbm==4.7.0
+xgboost==3.2.0
+scipy==1.15.3
+pyyaml==6.0.3
+ruff==0.6.9

@@ -1,3 +1,13 @@
+# Dependency-manifest policy (Phase 7.5d / B-006):
+# The AUTHORITATIVE, exactly-pinned manifest is `requirements-dev.txt` —
+# every line there is `==`-pinned and enforced by
+# tests/core/test_spec_guardrails.py::test_dependency_manifest_pins_versions.
+# The sections below are ADVISORY convenience floors for editable installs
+# (`pip install -e ".[dev,frontend]"`); they are NON-OPERATIVE for
+# governance: CI installs only from requirements-dev.txt, and version
+# bumps to the pinned manifest require a reviewed phase change. Any new
+# requirements*.txt file must also be exactly-pinned (same guardrail test
+# scans all requirements*.txt files).
 [project]
 name = "sports-prediction-platform"
 version = "0.1.0"
@@ -21,12 +31,14 @@ dependencies = [
 [project.optional-dependencies]
 # Frontend runtime deps — exactly what frontend/ imports (streamlit, altair
 # for SHAP/reliability charts, pandas) plus streamlit's own runtime needs.
+# Advisory floors only (see header note); never installed by CI.
 frontend = [
     "streamlit>=1.40",
     "altair>=5.0",
     "pandas>=2.0",
     "numpy>=1.26",
 ]
+# Advisory floors only (see header note); CI installs requirements-dev.txt.
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",

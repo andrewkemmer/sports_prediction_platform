@@ -76,12 +76,14 @@ suggested fix, assigned phase. Strict xfails in
 - **Suggested fix:** invoke the record-type validator inside each artifact writer before the file hits the sink; test with a deliberately malformed record.
 - **Assigned:** Phase 7.5d.
 
-### B-006 — dependency manifest declares lower bounds only, no pinned/lock manifest
+### B-006 — dependency manifest declares lower bounds only, no pinned/lock manifest (RESOLVED in Phase 7.5d)
 - **Source:** Task 1 audit 3 — `pyproject.toml` and `requirements-dev.txt` use `>=` floors; no lock file committed.
 - **Defect class:** hardened rule 9 — committed (pinned) dependency manifest.
 - **Suggested fix:** commit a pinned/locked manifest (exact-pin requirements or lock file) and a CI-consistent install path.
-- **Enforced by:** `tests/core/test_spec_guardrails.py::test_dependency_manifest_pins_versions` (strict xfail, B-006).
-- **Assigned:** Phase 7.5d.
+- **Resolution (Phase 7.5d, Workstream 1):** `requirements-dev.txt` converted to exact `==` pins for all 14 dev/CI dependencies (pytest, pytest-cov, pandas, numpy, requests, duckdb, pyarrow, pybaseball, scikit-learn, lightgbm, xgboost, scipy, pyyaml, ruff), resolved from the certification environment. The CI install path (`pip install -r requirements-dev.txt` in `.github/workflows/tests.yml`) is unchanged and now consumes the pinned manifest. No `requirements.txt` exists (none needed — CI uses only requirements-dev.txt). The strict xfail was removed; `test_dependency_manifest_pins_versions` is a hard-passing test. `pyproject.toml` optional-dependency floors remain (they are advisory convenience groups, not the manifest enforced by rule 9).
+- **Enforced by:** `tests/core/test_spec_guardrails.py::test_dependency_manifest_pins_versions` (hard test; scans every `requirements*.txt` at the repo root — any future manifest file is covered automatically).
+- **Status:** CLOSED (Phase 7.5d, Workstream 1).
+- **WS1 addendum (pre-commit review):** `pyproject.toml` dependency sections documented as advisory convenience floors (header note: authoritative manifest is `requirements-dev.txt`; CI installs only from it; sections are non-operative for governance). Pin test generalized from a hard-coded package list to a structural `==` check over all `requirements*.txt`. Clean-venv (Python 3.10.12) resolution check performed: all 14 pins downloadable from PyPI on a bare interpreter (wheel audit, no production sinks touched); full wheel materialization truncated only by sandbox disk space, not by any pin resolution failure.
 
 ### B-007 — external-source adapter (statcast fetch path) lacks recorded integration smoke
 - **Source:** Task 1 audit 8 — `sports/mlb/ingestion.py:107-109` lazily imports the statcast fetcher; no recorded/sandbox smoke exercises the fetch path end to end.
