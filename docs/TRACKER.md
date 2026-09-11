@@ -51,24 +51,35 @@ suggested fix, assigned phase. Strict xfails in
 - **Corrected scope:** **Build the PIT validator per spec §7.1 AND wire it into every applicable production path.** This is build+wire, not wire-only: no validator module currently exists to wire.
 - **Assigned:** Phase 7.5d as build+wire.
 
-### B-002 — retention family extraction misses stamped-SHAP and `.meta.json` families
+### B-002 — retention family extraction misses stamped-SHAP and `.meta.json` families (RESOLVED in Phase 7.5d)
 - **Source:** Task 1 audit 2 — `core/retention.py::_family_name` (lines 175–189) returns the full stem for `nba_shap_game_20270105_0022600001.csv` (date-stamp-plus-id suffix) and `nba_run_engine_markets_20270105.meta.json` (stem retains `_20270105.meta`); both then fail the allowlist and become permanently protected.
 - **Area:** `core/retention.py`, `core/config.py::DEFAULT_ALLOWLISTED_FAMILIES` (non-prefixed vs sport-prefixed family duality).
 - **Defect class:** hardened rule 3 — retention must cover every dated artifact family, sport-prefixed included; 20-day window.
 - **Suggested fix:** fix family extraction to strip trailing stamp/id segments and suffixes (`.meta`), unify the family allowlist (prefix-agnostic), set `frontend_days=20`, and add family-coverage tests against real emitted filenames for all four sports.
 - **Assigned:** Phase 7.5d.
+- **Resolution (Phase 7.5d, Workstream 2):** `_family_name` now strips composite `.meta` suffixes and trailing 10-digit run-engine id segments (in addition to 8-digit stamps and team-vs `@` segments); `_artifact_stamp` strips `.meta` before stamp search (the `.meta.json` stem had hidden the date entirely). `DEFAULT_ALLOWLISTED_FAMILIES` expanded to the exact emitted dated families for all four sports (B-004 ruling C1); the stale alias families `nfl_moneyline_json` / `nfl_feature_json` / `nfl_markets` / `nfl_markets_monitor` removed (zero emitters; sink scan found zero historical files). Tests: `test_shap_family_name_extraction` (regression cases), `test_stamped_shap_and_meta_families_deletable` (actual deletability), `test_emitted_dated_families_are_all_allowlisted`, `test_allowlisted_families_are_emitted_or_contracts`, `test_stale_alias_families_removed`.
+- **Enforced by:** `tests/test_retention.py` (parity tests, both directions).
+- **Status:** CLOSED (Phase 7.5d, Workstream 2).
 
-### B-003 — retention window is 10 days, policy hardened to 20
+### B-003 — retention window is 10 days, policy hardened to 20 (RESOLVED in Phase 7.5d)
 - **Source:** `core/config.py:31` `FRONTEND_ARTIFACT_RETENTION_DAYS = 10`.
 - **Defect class:** hardened rule 3 — 20-day retention window.
 - **Suggested fix:** change to 20 and update all affected retention tests.
 - **Assigned:** Phase 7.5d.
+- **Resolution (Phase 7.5d, Workstream 2):** window changed 10 → 20 per spec §23 (proposal STOP approved pre-implementation). `FRONTEND_ARTIFACT_RETENTION_DAYS = 20`; all four `study.yaml` `retention.frontend_days: 20`; all four sport study-config validators accept 20 only; docstrings/contract descriptions updated. Boundary operator (age == window retained / age > window deleted): `core/retention.py::plan_retention` line `if stamp >= cutoff: continue`. `test_ten_day_boundary_exact` renamed `test_twenty_day_boundary_exact` (zero old-name references; B-003-pending comment removed); `test_retention_cutoff` now pins cutoff 20260907−20 = 20260818. Repo-wide stale-literal sweep: all 12 live "10-day" literals updated; TRACKER historical quotes retained as audit record; GUARDRAILS.md and frontend/ had zero live 10-day literals (no §-amendment needed).
+- **Enforced by:** `tests/test_retention.py::test_twenty_day_boundary_exact`, `test_retention_cutoff`; `tests/test_config.py::test_load_config_defaults_when_nothing_given`; `tests/test_mlb_training.py::test_study_yaml_pins_the_agreed_defaults`.
+- **Status:** CLOSED (Phase 7.5d, Workstream 2).
+- **Future hardening (recorded):** sport study validators should cross-check `core.config.FRONTEND_ARTIFACT_RETENTION_DAYS` instead of hard-coding the window literal.
 
-### B-004 — `frontend_days`/allowlist consumers not verified per-path
+### B-004 — `frontend_days`/allowlist consumers not verified per-path (RESOLVED in Phase 7.5d)
 - **Source:** Task 1 audit 2 cross-check: retention is invoked in all four runners (good), but no test asserts every emitted family is deletable — the coverage gap that hides B-002.
 - **Defect class:** rule 2/4 — config fields need live, tested consumers.
 - **Suggested fix:** add a runner-emission ↔ allowlist parity test per sport.
 - **Assigned:** Phase 7.5d.
+- **Resolution (Phase 7.5d, Workstream 2):** audit found 23 emitted dated families not deletable (MLB `run_engine_markets`/`run_engine_monitor`; all `nfl_moneyline_v1`/`nfl_feature_v1`/`nfl_run_engine_*` true names; the entire NHL and NBA sport-prefixed sets — all frontend-consumed). STOP reported per standing condition; ruling **C1** approved: `DEFAULT_ALLOWLISTED_FAMILIES` expanded to the exact emitted families (+16 NHL/NBA/MLB entries) and the 4 stale alias entries removed (zero emitters, zero sink files — verified before removal). Bidirectional parity tests added: every emitted dated family must be allowlisted, and every allowlist entry must be an emitted family or a durable-contract name.
+- **Enforced by:** `tests/test_retention.py::test_emitted_dated_families_are_all_allowlisted` + `test_allowlisted_families_are_emitted_or_contracts` + `test_stale_alias_families_removed`.
+- **Status:** CLOSED (Phase 7.5d, Workstream 2).
+- **Future hardening (recorded, targeted Phase 7.6):** auto-derive the retention allowlist from each sport's `ArtifactContract` frontend families (ruling C2), eliminating the hard-coded list.
 
 ### B-005 — record-type validator alignment before write not evidenced
 - **Source:** Task 1 audit 5/6 follow-up: artifact schema checks exist post-write (`tests/test_mlb_artifact_schemas.py`, `artifacts.py::_check_columns`), but no pre-write record-type validator gate is invoked on all write paths.
@@ -84,6 +95,7 @@ suggested fix, assigned phase. Strict xfails in
 - **Enforced by:** `tests/core/test_spec_guardrails.py::test_dependency_manifest_pins_versions` (hard test; scans every `requirements*.txt` at the repo root — any future manifest file is covered automatically).
 - **Status:** CLOSED (Phase 7.5d, Workstream 1).
 - **WS1 addendum (pre-commit review):** `pyproject.toml` dependency sections documented as advisory convenience floors (header note: authoritative manifest is `requirements-dev.txt`; CI installs only from it; sections are non-operative for governance). Pin test generalized from a hard-coded package list to a structural `==` check over all `requirements*.txt`. Clean-venv (Python 3.10.12) resolution check performed: all 14 pins downloadable from PyPI on a bare interpreter (wheel audit, no production sinks touched); full wheel materialization truncated only by sandbox disk space, not by any pin resolution failure.
+- **WS1 process deviation (recorded post-hoc):** commit `4c7a01c` was made without a formally presented and approved validation report preceding it (the executing agent treated the earlier conditional WS1 approval as sufficient). The substantive WS1 content — exact `==` pins for all 14 dependencies, generalized `requirements*.txt` scan, pyproject floor≤pin guard, advisory-floor documentation, clean-venv (3.10.12) installability proof — was verified by battery before the commit and re-verified post-hoc. Future workstreams commit only after their report is explicitly approved.
 
 ### B-007 — external-source adapter (statcast fetch path) lacks recorded integration smoke
 - **Source:** Task 1 audit 8 — `sports/mlb/ingestion.py:107-109` lazily imports the statcast fetcher; no recorded/sandbox smoke exercises the fetch path end to end.

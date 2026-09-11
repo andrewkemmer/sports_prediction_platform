@@ -11,8 +11,8 @@ Design decisions carried over from the reference repo audit:
 * The frontend artifact sink is ``sports/<sport>/data_delivery/`` (never the
   legacy ``<sport>-backend/`` naming).
 * Undated artifacts are forbidden going forward; every frontend artifact is
-  date-stamped ``<family>_<YYYYMMDD>.<ext>`` and subject to the 10-day
-  rolling retention policy.
+  date-stamped ``<family>_<YYYYMMDD>.<ext>`` and subject to the 20-day
+  rolling retention policy (spec §23; B-003, Phase 7.5d).
 * Market schemas stay sport-specific; the shared layer only defines semantic
   interfaces (see ``core.contracts``).
 """
@@ -28,7 +28,7 @@ SPORTS = ("mlb", "nfl", "nhl", "nba")
 #: Number of days a frontend/dashboard artifact is retained in the sink
 #: before deletion. Raw payloads, Parquet/DuckDB stores, feature/training
 #: stores, model contracts, study configs, and production code are exempt.
-FRONTEND_ARTIFACT_RETENTION_DAYS = 10
+FRONTEND_ARTIFACT_RETENTION_DAYS = 20
 
 #: Minimum decided games per team before any model-derived display is
 #: trusted on the dashboard (guarded by warmup rules, not fabricated).
@@ -47,7 +47,15 @@ DEFAULT_RUN_UTC_HOUR = 9
 
 #: Default delivery allowlist: the frontend artifact families GitPython may
 #: push to GitHub. Experiment/optimization runs never push regardless.
+#: B-004 (Phase 7.5d): expanded to the EXACT emitted dated families for all
+#: four sports (runner-emission <-> allowlist parity test enforces both
+#: directions). The stale alias families nfl_moneyline_json / nfl_feature_json
+#: / nfl_markets / nfl_markets_monitor were REMOVED: nothing emits them and a
+#: sink scan found zero historical files matching them (never make historical
+#: files undeletable — the C2 auto-derivation from ArtifactContract is the
+#: future hardening, targeted Phase 7.6).
 DEFAULT_ALLOWLISTED_FAMILIES = (
+    # --- MLB (unprefixed) ---
     "todays_games",
     "power_rankings",
     "calibration",
@@ -62,20 +70,43 @@ DEFAULT_ALLOWLISTED_FAMILIES = (
     "model_history",
     "model_version_history",
     "features_metadata",
-    # NFL families use the sport-prefixed names from the reference
-    # repo's real data_delivery filenames (nfl-backend artifacts).
-    "nfl_moneyline_json",
+    "run_engine_markets",
+    "run_engine_monitor",
+    # --- NFL (sport-prefixed, exact emitted names) ---
+    "nfl_moneyline_v1",
     "nfl_calibration",
     "nfl_predictions_history",
     "nfl_power_rankings",
-    "nfl_markets",
-    "nfl_markets_monitor",
+    "nfl_run_engine_markets",
+    "nfl_run_engine_monitor",
     "nfl_qb_matchup",
-    "nfl_feature_json",
+    "nfl_feature_v1",
     "nfl_model_monitor",
     "nfl_shap_game",
     "nfl_feature_drift",
     "nfl_feature_coverage",
+    # --- NHL (sport-prefixed, exact emitted names) ---
+    "nhl_moneyline_v1",
+    "nhl_calibration",
+    "nhl_predictions_history",
+    "nhl_power_rankings",
+    "nhl_run_engine_markets",
+    "nhl_run_engine_monitor",
+    "nhl_goalie_matchup",
+    "nhl_feature_v1",
+    "nhl_model_monitor",
+    "nhl_shap_game",
+    # --- NBA (sport-prefixed, exact emitted names) ---
+    "nba_moneyline_v1",
+    "nba_calibration",
+    "nba_predictions_history",
+    "nba_power_rankings",
+    "nba_player_matchup",
+    "nba_feature_v1",
+    "nba_model_monitor",
+    "nba_run_engine_markets",
+    "nba_run_engine_monitor",
+    "nba_shap_game",
 )
 
 
@@ -137,7 +168,7 @@ class WalkForwardConfig:
 
 @dataclass(frozen=True)
 class RetentionConfig:
-    """Frontend-artifact retention policy (10-day rolling deletion)."""
+    """Frontend-artifact retention policy (20-day rolling deletion)."""
 
     frontend_days: int = FRONTEND_ARTIFACT_RETENTION_DAYS
 

@@ -1,6 +1,6 @@
 """Frontend-artifact retention utilities.
 
-Implements the 10-day rolling deletion policy over the frontend/dashboard
+Implements the 20-day rolling deletion policy over the frontend/dashboard
 artifact families in a sport's ``data_delivery`` sink. The policy applies
 ONLY to frontend artifacts (Phase 0 decision 7): raw source payloads,
 historical Parquet/DuckDB data, feature/training stores, approved model
@@ -53,8 +53,14 @@ class RetentionPlan:
 
 
 def _artifact_stamp(path: Path) -> str | None:
-    """The trailing YYYYMMDD stamp on an artifact filename, if any."""
+    """The trailing YYYYMMDD stamp on an artifact filename, if any.
+
+    Composite ``.meta.json`` suffixes are stripped first (B-002: the
+    ``Path.stem`` of ``fam_20270105.meta.json`` retains ``.meta``, which
+    glues the date into a non-numeric segment and hid the stamp entirely)."""
     stem = path.stem
+    if stem.endswith(".meta"):
+        stem = stem[: -len(".meta")]
     parts = stem.split("_")
     for part in reversed(parts):
         if len(part) == 8 and part.isdigit() and is_valid_compact_date(part):
@@ -117,7 +123,12 @@ def plan_retention(
             continue
         if stamp >= cutoff:
             continue
-        # Family = filename up to the first _<date> segment.
+        # Family = filename up to the date stamp, after stripping trailing
+        # id/extra segments and composite suffixes (B-002). The age
+        # comparison is the string compare against the cutoff ABOVE: a file
+        # is a deletion candidate only when stamp < cutoff, i.e. age >
+        # frontend_days (age == window is retained — core/retention.py, the
+        # ``if stamp >= cutoff: continue`` line in ``plan_retention``).
         family = _family_name(p.name)
         if family not in allowlist:
             protected.append(p)
@@ -141,11 +152,22 @@ def _family_name(filename: str) -> str:
     leading underscore-delimited segments up to the date stamp).
     """
     stem = Path(filename).stem
+    # Composite suffixes: ``<family>_<date>.meta.json`` -> stem keeps the
+    # ``.meta`` component (Path.stem strips only the last extension). Strip
+    # it so the family resolves identically to the sibling .json artifact
+    # (B-002: ``nba_run_engine_markets_20270105.meta.json`` used to retain
+    # ``_20270105.meta`` and become permanently protected).
+    if stem.endswith(".meta"):
+        stem = stem[: -len(".meta")]
     parts = stem.split("_")
-    # Walk from the end: drop the team-vs segment (SHAP), then any date
-    # stamp, keeping at least the first segment as the family.
+    # Walk from the end: drop team-vs segments (SHAP: ``WSH@SD``), trailing
+    # id segments (10-digit run-engine ids), and date stamps — keeping at
+    # least the first segment as the family (B-002: stamped-SHAP names such
+    # as ``nba_shap_game_20270105_0022600001`` used to return the full
+    # stem and fail the allowlist).
     while len(parts) > 1 and (
             (len(parts[-1]) == 8 and parts[-1].isdigit())
+            or (len(parts[-1]) == 10 and parts[-1].isdigit())
             or "@" in parts[-1]):
         parts.pop()
     return "_".join(parts)
@@ -159,7 +181,7 @@ def apply_retention(
     reference_date: str | None = None,
     execute: bool = False,
 ) -> RetentionPlan:
-    """Plan (and optionally execute) the 10-day rolling deletion.
+    """Plan (and optionally execute) the 20-day rolling deletion.
 
     With ``execute=False`` (default) nothing is deleted. With
     ``execute=True`` the plan's candidates are unlinked; failures on

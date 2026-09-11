@@ -55,7 +55,7 @@ def test_study_yaml_pins_the_agreed_defaults():
     assert study.warmup.min_history_days == 30
     assert study.walk_forward.step_days == 7
     assert study.oof.min_training_rows == 200
-    assert study.frontend_days == 10
+    assert study.frontend_days == 20
     assert "run_engine_oof" in study.retention_exempt_families
     assert "run_engine_oof" not in study.allowlisted_families
 

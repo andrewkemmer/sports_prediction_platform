@@ -68,7 +68,7 @@ class NBAAdapter:
         ]
         families = [ArtifactFamily(family=n, pattern=p, ext=e,
                                    description="NBA frontend artifact "
-                                               "(10-day retention)")
+                                               "(20-day retention)")
                     for n, p, e in dated]
         families += [ArtifactFamily(family=n, pattern=p, ext=e,
                                     date_stamped=False,

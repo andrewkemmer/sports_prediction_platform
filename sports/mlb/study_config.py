@@ -207,10 +207,10 @@ def load_mlb_study(path: str | Path | None = None) -> MLBStudy:
     )
 
     r_raw = data.get("retention") or {}
-    frontend_days = int(r_raw.get("frontend_days", 10))
-    if frontend_days != 10:
+    frontend_days = int(r_raw.get("frontend_days", 20))
+    if frontend_days != 20:
         raise MLBStudyError(
-            f"retention.frontend_days must be 10 (got {frontend_days})")
+            f"retention.frontend_days must be 20 (got {frontend_days})")
 
     allow = tuple(data.get("allowlisted_families") or ())
     if not allow:

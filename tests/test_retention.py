@@ -1,8 +1,9 @@
 """Tests for core.retention."""
 
+import re
 from pathlib import Path
 
-from core.config import default_config
+from core.config import DEFAULT_ALLOWLISTED_FAMILIES, default_config
 from core.retention import (
     RetentionPlan,
     _family_name,
@@ -11,6 +12,77 @@ from core.retention import (
     retention_cutoff,
     run_production_retention,
 )
+
+# ---------------------------------------------------------------------------
+# B-004: emission <-> allowlist parity (both directions, all four sports).
+# EMISSIONS is the audited inventory of DATED filename prefixes the runners
+# write to each sport's sink (evidence: sports/*/runner.py, mlb artifacts.py
+# ``sink / f"<prefix>_<date>..."`` call sites). Any new emitted family MUST
+# be added here AND to DEFAULT_ALLOWLISTED_FAMILIES in the same commit.
+# ---------------------------------------------------------------------------
+EMISSIONS: dict[str, tuple[str, ...]] = {
+    "mlb": (
+        "todays_games", "power_rankings", "calibration", "model_monitor",
+        "run_engine_markets", "run_engine_monitor", "shap_game",
+        "predictions_history", "feature_drift", "feature_coverage",
+        "rolling_brier", "model_history", "model_version_history",
+        "features_metadata",
+    ),
+    "nfl": (
+        "nfl_moneyline_v1", "nfl_calibration", "nfl_predictions_history",
+        "nfl_power_rankings", "nfl_run_engine_markets", "nfl_run_engine_monitor",
+        "nfl_qb_matchup", "nfl_feature_v1", "nfl_model_monitor", "nfl_shap_game",
+        "nfl_feature_drift", "nfl_feature_coverage",
+    ),
+    "nhl": (
+        "nhl_moneyline_v1", "nhl_calibration", "nhl_predictions_history",
+        "nhl_power_rankings", "nhl_run_engine_markets", "nhl_run_engine_monitor",
+        "nhl_goalie_matchup", "nhl_feature_v1", "nhl_model_monitor",
+        "nhl_shap_game",
+    ),
+    "nba": (
+        "nba_moneyline_v1", "nba_calibration", "nba_predictions_history",
+        "nba_power_rankings", "nba_player_matchup", "nba_feature_v1",
+        "nba_model_monitor", "nba_run_engine_markets", "nba_run_engine_monitor",
+        "nba_shap_game",
+    ),
+}
+
+
+def test_emitted_dated_families_are_all_allowlisted():
+    """B-004 (forward): every dated family a runner can emit has an allowlist
+    entry — nothing the runners produce is permanently protected."""
+    allow = set(DEFAULT_ALLOWLISTED_FAMILIES)
+    missing: list[str] = []
+    for sport, prefixes in EMISSIONS.items():
+        for prefix in prefixes:
+            family = _family_name(f"{prefix}_20270105.csv")
+            if family not in allow:
+                missing.append(f"{sport}: {family}")
+    assert not missing, f"emitted families missing from allowlist: {missing}"
+
+
+def test_allowlisted_families_are_emitted_or_contracts():
+    """B-004 (reverse): every allowlist entry is an emitted dated family OR
+    a durable-contract family (contract-frozen naming, not a dated emission)."""
+    durable = {"markets", "markets_monitor", "model_history",
+               "model_version_history", "features_metadata"}
+    allow = set(DEFAULT_ALLOWLISTED_FAMILIES)
+    emitted = {fam for fams in EMISSIONS.values()
+               for fam in (_family_name(f"{p}_20270105.csv") for p in fams)}
+    stale = allow - emitted - durable
+    assert not stale, (
+        "allowlist entries that match no emission and no durable contract: "
+        + str(sorted(stale)))
+
+
+def test_stale_alias_families_removed():
+    """B-004 duality cleanup: the stale alias families are gone from the
+    allowlist (nothing emits them; sink scan found zero historical files)."""
+    allow = set(DEFAULT_ALLOWLISTED_FAMILIES)
+    stale_aliases = {"nfl_moneyline_json", "nfl_feature_json", "nfl_markets",
+                     "nfl_markets_monitor"}
+    assert not (allow & stale_aliases), "stale alias families still allowlisted"
 
 
 def _mk_sink(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -24,7 +96,7 @@ def _mk_sink(tmp_path: Path, files: dict[str, str]) -> Path:
 
 
 def test_retention_cutoff():
-    assert retention_cutoff(10, "20260907") == "20260828"
+    assert retention_cutoff(20, "20260907") == "20260818"
     assert retention_cutoff(1, "20260907") == "20260906"
 
 
@@ -89,6 +161,14 @@ def test_shap_family_name_extraction():
     assert _family_name("shap_game_20260907_WSH@SD.csv") == "shap_game"
     assert _family_name("todays_games_20260907.csv") == "todays_games"
     assert _family_name("model_history.json") == "model_history"
+    # B-002 regressions: stamped-SHAP (date + id), .meta.json siblings,
+    # and run-engine names must resolve to their allowlist families.
+    assert _family_name("nba_shap_game_20270105_0022600001.csv") == "nba_shap_game"
+    assert _family_name(
+        "nba_run_engine_markets_20270105.meta.json") == "nba_run_engine_markets"
+    assert _family_name(
+        "nba_run_engine_markets_20270105.json") == "nba_run_engine_markets"
+    assert _family_name("nfl_qb_matchup_20260907_KC@BUF.json") == "nfl_qb_matchup"
 
 
 def test_family_on_allowlist_deletes(tmp_path):
@@ -99,8 +179,30 @@ def test_family_on_allowlist_deletes(tmp_path):
     assert {p.name for p in plan.deleted} == {"shap_game_20260815_X@Y.csv"}
 
 
+def test_stamped_shap_and_meta_families_deletable(tmp_path):
+    """B-002 + B-004: sport-prefixed stamped-SHAP and .meta.json artifacts
+    classify into their (now-allowlisted) families and are ACTUALLY
+    deletable — previously they were permanently protected."""
+    cfg = default_config()
+    sink = _mk_sink(tmp_path, {
+        "nba_shap_game_20270105_0022600001.csv": "old",
+        "nba_run_engine_markets_20270105.meta.json": "old meta",
+        "nba_shap_game_20270130_0022600009.csv": "recent",
+    })
+    plan = run_production_retention(
+        sink, cfg, "mlb", generation_succeeded=True,
+        reference_date="20270201")  # cutoff 20270112
+    deleted = {p.name for p in plan.deleted}
+    assert deleted == {
+        "nba_shap_game_20270105_0022600001.csv",
+        "nba_run_engine_markets_20270105.meta.json",
+    }
+    # Within-window stamped artifact survives.
+    assert (sink / "nba_shap_game_20270130_0022600009.csv").exists()
+
+
 def test_within_window_artifact_retained(tmp_path):
-    """A 6-day-old artifact is inside the 10-day window: never a candidate."""
+    """A 6-day-old artifact is inside the 20-day window: never a candidate."""
     cfg = default_config()
     sink = _mk_sink(tmp_path, {"todays_games_20260901.csv": "recent"})
     plan = apply_retention(sink, cfg, "mlb", reference_date="20260907",
@@ -194,19 +296,18 @@ def test_durable_state_never_deleted_even_on_success(tmp_path):
     assert "study_config.json" in protected
 
 
-def test_ten_day_boundary_exact(tmp_path):
-    # B-003 pending: 7.5d updates the 10-day window to 20; this literal
-    # tracks the production value until then.
-    """Artifacts exactly 10 days old are kept; 11 days old are deleted."""
+def test_twenty_day_boundary_exact(tmp_path):
+    # B-003 resolved (7.5d): window is 20 days per spec §23.
+    """Artifacts exactly 20 days old are kept; 21 days old are deleted."""
     sink = _mk_sink_prod(tmp_path, {
-        "todays_games_20260828.csv": "exactly 10 days",
-        "todays_games_20260827.csv": "11 days",
+        "todays_games_20260818.csv": "exactly 20 days",
+        "todays_games_20260817.csv": "21 days",
     })
     plan = run_production_retention(
         sink, default_config(), "mlb",
         generation_succeeded=True, reference_date="20260907")
-    assert {p.name for p in plan.deleted} == {"todays_games_20260827.csv"}
-    assert (sink / "todays_games_20260828.csv").exists()
+    assert {p.name for p in plan.deleted} == {"todays_games_20260817.csv"}
+    assert (sink / "todays_games_20260818.csv").exists()
 
 
 def test_direct_execute_still_dry_by_default(tmp_path):

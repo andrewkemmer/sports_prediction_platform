@@ -119,7 +119,7 @@ def test_load_config_path_and_raw_mutually_exclusive(tmp_path):
 
 def test_load_config_defaults_when_nothing_given():
     cfg = load_config()
-    assert cfg.retention.frontend_days == 10
+    assert cfg.retention.frontend_days == 20
     assert isinstance(cfg.delivery, DeliveryConfig)
     assert isinstance(cfg, PlatformConfig)
 

@@ -42,7 +42,7 @@ training:
   min_train_days_warmup: 30   # skip folds starting before this much history
 
 retention:
-  frontend_days: 10           # 10-day rolling deletion for frontend artifacts
+  frontend_days: 20           # 20-day rolling deletion for frontend artifacts (spec §23; B-003)
 
 # Frontend artifact families GitPython may push (delivery allowlist).
 allowlisted_families:

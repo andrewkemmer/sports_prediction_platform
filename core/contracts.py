@@ -114,7 +114,8 @@ class ArtifactFamily:
 
     ``pattern`` is the dated filename pattern (e.g. ``todays_games_*.csv``);
     ``date_stamped`` is False only for durable contract artifacts that are
-    exempt from the 10-day retention policy (Phase 0 decision 7) — the
+    exempt from the 20-day retention policy (Phase 0 decision 7; window
+    updated to 20 days by B-003, Phase 7.5d) — the
     frontend must either read them directly as durable state or not at all.
     """
 
@@ -162,7 +163,7 @@ class ArtifactContract:
         raise KeyError(f"artifact family {name!r} not in {self.sport} contract")
 
     def retention_candidates(self) -> tuple[ArtifactFamily, ...]:
-        """Families subject to the 10-day rolling deletion policy."""
+        """Families subject to the 20-day rolling deletion policy."""
         return tuple(f for f in self.families
                      if f.date_stamped and not f.retention_exempt)
 
@@ -341,7 +342,7 @@ def default_artifact_contract(sport: str,
             family=name,
             pattern=pattern,
             ext=ext,
-            description=f"{s} frontend artifact (10-day retention)",
+            description=f"{s} frontend artifact (20-day retention)",
         ))
     for name, pattern, ext in durable:
         families.append(ArtifactFamily(
