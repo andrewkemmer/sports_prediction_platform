@@ -3,11 +3,22 @@
 Features are DECLARED in a registry (name, summary, formula, source, window,
 units, direction) and derived by a controlled factory — no ad-hoc column
 creation in the pipeline. The registry doubles as the ``features_metadata``
-artifact source (dashboard tooltips), and ``FEATURE_COLS`` /
-``RUN_FEATURE_COLS`` are the frozen moneyline and run-engine views from the
-reference repo's 2026-09-07 production state (the Experiment #2 E/F
-replacement included: the 6 S-family baselines removed, the 8 exp2
-candidates shipped).
+artifact source (dashboard tooltips).
+
+The registry owns BOTH versioned per-model contracts (Phase 7.5b canonical
+ownership):
+
+* ``MONEYLINE_FEATURE_COLS`` — the frozen 64-column moneyline view
+  (reference repo's training feature list as of 2026-09-07; the Experiment
+  #2 E/F replacement included: the 6 S-family baselines removed, the 8
+  exp2 candidates shipped), version ``mlb-moneyline-v75``;
+* ``MARKET_FEATURE_COLS`` — the frozen 53-column run-engine lambda view
+  (RUN_LAMBDA_VIEW_FROZEN from the reference 2026-08-30 keep-list restore;
+  53 kept / 14 dropped), version ``mlb-market-v75``.
+
+Both are explicit, independent ``tuple([...])`` constructions — no aliases,
+no legacy bare frozen-view symbols. The lists are carried over
+byte-identical to the pre-7.5b state (behavior-neutral).
 """
 
 from __future__ import annotations
@@ -19,10 +30,10 @@ from core.validation import ValidationError, require_columns
 
 
 # ---------------------------------------------------------------------------
-# Frozen moneyline feature view (training.FEATURE_COLS as of 2026-09-07)
+# Versioned moneyline feature contract (explicit, independent declaration)
 # ---------------------------------------------------------------------------
 
-FEATURE_COLS: tuple[str, ...] = (
+MONEYLINE_FEATURE_COLS: tuple[str, ...] = tuple([
     # 1. Baseline
     "is_home",
     # 2-4. Core pre-game diffs
@@ -76,27 +87,16 @@ FEATURE_COLS: tuple[str, ...] = (
     "exp2_cat_k_breaking_diff", "exp2_cat_k_offspeed_diff",
     "exp2_cat_xwoba_fastball_diff", "exp2_cat_xwoba_breaking_diff",
     "exp2_cat_xwoba_offspeed_diff", "exp2_cat_platoon_k_fastball_diff",
-)
+])
+MONEYLINE_CONTRACT_VERSION = "mlb-moneyline-v75"
 
-# The 5 engineered composites (kept in FEATURE_COLS, dropped from the run
-# engine's lambda view) plus the moneyline-only matchup terms.
-_RUN_EXTRA_EXCLUSIONS: frozenset[str] = frozenset({
-    "lineup_handedness_matchup_advantage",
-    "bullpen_meltdown_risk",          # pitches_diff x whip_diff
-    "pitcher_regression_indicator",   # velo_diff x era_diff
-    "lineup_depth_multiplier",        # woba_mean_diff x top3_diff
-    "ace_efficiency_factor",          # k9_diff x whiff_diff
-    "run_margin_diff",                # lambda-derived moneyline-side feature
-})
-
-# The one sanctioned _diff survivor in the run-engine view: a PARK context
-# multiplier, not a matchup gap.
-RUN_DIFF_EXCEPTION = "park_factor_slug_diff"
-
-# FROZEN run-engine lambda view (2026-09-07): byte-identical to the
-# reference repo's RUN_LAMBDA_VIEW_FROZEN (53 kept / 14 dropped). The
-# moneyline list may change without run-engine sign-off; this view is pinned.
-RUN_FEATURE_COLS: tuple[str, ...] = (
+# ---------------------------------------------------------------------------
+# Versioned market feature contract (explicit, independent declaration)
+# ---------------------------------------------------------------------------
+# The FROZEN run-engine lambda view: byte-identical to the reference repo's
+# RUN_LAMBDA_VIEW_FROZEN (53 kept / 14 dropped). The moneyline list may
+# change without run-engine sign-off; this view is pinned.
+MARKET_FEATURE_COLS: tuple[str, ...] = tuple([
     "is_home", "win_pct_diff", "elo_diff", "rest_days_diff",
     "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
     "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
@@ -116,33 +116,13 @@ RUN_FEATURE_COLS: tuple[str, ...] = (
     "bullpen_whip_3g_home", "bullpen_whip_3g_away",
     "team_barrel_15g_home", "team_barrel_15g_away",
     "team_exitvelo_15g_home", "team_exitvelo_15g_away",
-)
-
-RUN_DROPPED_COLS: tuple[str, ...] = (
-    "lineup_handedness_matchup_advantage", "bullpen_meltdown_risk",
-    "pitcher_regression_indicator", "lineup_depth_multiplier",
-    "ace_efficiency_factor", "run_margin_diff",
-    "exp2_centered_k_diff", "exp2_cat_k_fastball_diff",
-    "exp2_cat_k_breaking_diff", "exp2_cat_k_offspeed_diff",
-    "exp2_cat_xwoba_fastball_diff", "exp2_cat_xwoba_breaking_diff",
-    "exp2_cat_xwoba_offspeed_diff", "exp2_cat_platoon_k_fastball_diff",
-)
-
-assert len(RUN_FEATURE_COLS) == 53 and len(RUN_DROPPED_COLS) == 14
-
-# Phase 7.5 Task 2 — versioned per-model contracts (rename/remap ONLY).
-# The two frozen views above are now bound to explicit, independent model
-# contract versions so neither model can inherit the other's list. Feature
-# lists are carried over BYTE-IDENTICAL; the new identifiers reflect the
-# restructured contract format (explicit per-model declarations) and the
-# prior version strings are preserved for provenance.
-MONEYLINE_FEATURE_COLS: tuple[str, ...] = FEATURE_COLS
-MONEYLINE_CONTRACT_VERSION = "mlb-moneyline-v75"
-MARKET_FEATURE_COLS: tuple[str, ...] = RUN_FEATURE_COLS
+])
 MARKET_CONTRACT_VERSION = "mlb-market-v75"
 #: Prior provenance versions (frozen 2026-09-07 reference state).
 PRIOR_MONEYLINE_CONTRACT_VERSION = "phase2"
 PRIOR_MARKET_CONTRACT_VERSION = "phase2"
+
+assert len(MONEYLINE_FEATURE_COLS) == 64 and len(MARKET_FEATURE_COLS) == 53
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +153,7 @@ def _spec(e: FeatureEntry) -> FeatureSpec:
         direction=e.direction, members=e.members, tooltip=e.tooltip)
 
 
-# The declared registry. Every FEATURE_COLS member must appear here (checked
+# The declared registry. Every moneyline-contract member must appear here (checked
 # by build_feature_contract at import/validation time).
 _REGISTRY: tuple[FeatureEntry, ...] = (
     FeatureEntry(
@@ -484,26 +464,30 @@ def registry_entries() -> tuple[FeatureEntry, ...]:
     return _REGISTRY
 
 
-def build_feature_contract(version: str = "phase2") -> FeatureContract:
-    """Build the shared FeatureContract from the MLB registry."""
+def build_feature_contract(
+        version: str = MONEYLINE_CONTRACT_VERSION) -> FeatureContract:
+    """Build the shared FeatureContract from the MLB registry.
+
+    Defaults to the ACTIVE v75 moneyline contract version — no active
+    builder defaults to a legacy version string."""
     return FeatureContract(
         sport="mlb", version=version,
         features=tuple(_spec(e) for e in _REGISTRY))
 
 
 def validate_registry() -> None:
-    """Every FEATURE_COLS member must be declared in the registry (and vice
-    versa: the registry must not declare names outside the frozen views).
+    """Every MONEYLINE_FEATURE_COLS member must be declared in the registry (and vice
+    versa: the registry must not declare names outside the moneyline contract).
     Raises FeatureRegistryError on drift."""
     declared = {e.name for e in _REGISTRY}
-    missing = [f for f in FEATURE_COLS if f not in declared]
+    missing = [f for f in MONEYLINE_FEATURE_COLS if f not in declared]
     if missing:
         raise FeatureRegistryError(
-            f"FEATURE_COLS members missing from the registry: {missing}")
-    extra = sorted(declared - set(FEATURE_COLS))
+            f"MONEYLINE_FEATURE_COLS members missing from the registry: {missing}")
+    extra = sorted(declared - set(MONEYLINE_FEATURE_COLS))
     if extra:
         raise FeatureRegistryError(
-            f"registry declares names outside FEATURE_COLS: {extra}")
+            f"registry declares names outside MONEYLINE_FEATURE_COLS: {extra}")
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +583,7 @@ def derive_diff_features(df, *, require_records: bool = False):
     return out
 
 
-def ensure_feature_columns(df, feature_cols: tuple[str, ...] = FEATURE_COLS):
+def ensure_feature_columns(df, feature_cols: tuple[str, ...] | None = None):
     """Guarantee every requested feature column exists (missing -> NaN).
 
     Never fabricates values — missing observations ship as true NULLs (tree
@@ -607,7 +591,8 @@ def ensure_feature_columns(df, feature_cols: tuple[str, ...] = FEATURE_COLS):
     """
     import numpy as np
     out = df.copy()
-    for c in feature_cols:
+    for c in (feature_cols if feature_cols is not None
+              else MONEYLINE_FEATURE_COLS):
         if c not in out.columns:
             out[c] = np.nan
     return out
@@ -623,8 +608,8 @@ def build_candidate_frame(game_df, *, include_run_view: bool = True):
     from sports.mlb.frames import enrich_elo_and_records
     df = enrich_elo_and_records(game_df, rename_team_woba=True)
     df = derive_diff_features(df)
-    df = ensure_feature_columns(df, FEATURE_COLS)
+    df = ensure_feature_columns(df, MONEYLINE_FEATURE_COLS)
     if include_run_view:
-        df = ensure_feature_columns(df, RUN_FEATURE_COLS)
+        df = ensure_feature_columns(df, MARKET_FEATURE_COLS)
     validate_registry()
-    return df, FEATURE_COLS
+    return df, MONEYLINE_FEATURE_COLS

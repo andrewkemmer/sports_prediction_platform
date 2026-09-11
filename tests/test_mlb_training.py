@@ -14,8 +14,8 @@ import pytest
 from core.config import default_config
 from core.warmup import evaluate_warmup
 from sports.mlb.feature_registry import (
-    FEATURE_COLS,
-    RUN_FEATURE_COLS,
+    MARKET_FEATURE_COLS,
+    MONEYLINE_FEATURE_COLS,
     validate_registry,
 )
 from sports.mlb.study_config import (
@@ -190,5 +190,5 @@ def test_oof_probs_strictly_inside():
 
 def test_registry_consistent_with_frozen_views():
     validate_registry()  # raises FeatureRegistryError on drift
-    assert len(RUN_FEATURE_COLS) == 53
-    assert len(FEATURE_COLS) > len(RUN_FEATURE_COLS)
+    assert len(MARKET_FEATURE_COLS) == 53
+    assert len(MONEYLINE_FEATURE_COLS) > len(MARKET_FEATURE_COLS)

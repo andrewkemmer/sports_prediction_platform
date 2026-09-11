@@ -21,7 +21,8 @@ guardrail-test strict xfails must exist here by ID.
 | 7.5 | Phase 7.5 remediation (behavior-neutral): fold/OOF consolidation into `core/folds.py`, versioned per-model contracts | COMPLETE (commit `86cff77`, tag `phase-7.5-complete`) |
 | 7.5b | MLB adapter wiring + scope pool baseline (commit `70bec2e`, tag `phase-7.5-baseline`) — see history correction note below | NOT EXECUTED as a distinct phase: no 7.5b report or commit exists; `86cff77` is the Phase 7.5-complete commit (pre-7.5b state). `70bec2e` / `phase-7.5-baseline` is the MLB adapter *wiring* commit from the earlier authorized pre-step, not a 7.5b phase delivery |
 | 7.5c | Guardrails: policy (`GUARDRAILS.md`), enforcement (`tests/core/test_spec_guardrails.py`), audit, cleanup, governance | COMPLETE (this phase) |
-| 7.5d | Blocker remediation: B-001…B-009 (see blocker table below) | PENDING |
+| 7.5b | Canonical per-sport contract ownership: registry-owned versioned contracts, study_config import+bind, legacy symbol removal, adapter rewiring (B-008 resolved) | EXECUTED (pending commit) |
+| 7.5d | Blocker remediation: B-001…B-007, B-009 (see blocker table below; B-008 closed in 7.5b) | PENDING |
 | 7.6a | Repository structure alignment (per approved Phase 7.6 plan; not started) | PENDING |
 | 7.6b | Structure alignment verification + follow-through | PENDING |
 
@@ -29,7 +30,7 @@ guardrail-test strict xfails must exist here by ID.
 
 | Byproduct | Created in | Disposition |
 |---|---|---|
-| `scripts_ops/phase75_*` evidence scripts + manifest | 7.5 (remediation, `86cff77`) | Manifest moved to `docs/audits/phase75_contracts_manifest.json` (7.5c); scripts deleted (7.5c) |
+| `scripts_ops/phase75_*` evidence scripts + manifest | 7.5 (remediation, `86cff77`) | Scripts deleted (7.5c); manifest superseded in 7.5b by the permanent in-module evidence constants (`tests/core/test_fold_fingerprints.py`, `tests/core/test_matrix_hashes.py`) and deleted with `docs/audits/` |
 | `scripts_ops/verify_{store,features}_equiv.py` | Phase 8 pre-cert | Deleted (7.5c) |
 | `experiments/mlb_store_build.py`, `nba_cert_*`, `phase7_*.py`, `phase8_precert.py` | Phase 7/8 certification | Deleted (7.5c) |
 | `experiments/extract_*_schema_fixtures.py`, `enrich_nfl_schema_fixtures.py` | schema-fixture extraction | Deleted (7.5c); fixture DATA lives permanently in `tests/fixtures/` |
@@ -88,13 +89,12 @@ suggested fix, assigned phase. Strict xfails in
 - **Enforced by:** `tests/core/test_spec_guardrails.py::test_external_adapters_have_recorded_integration_smoke` (strict xfail, B-007).
 - **Assigned:** Phase 7.5d.
 
-### B-008 — MLB scope binds bare `FEATURE_COLS`/`RUN_FEATURE_COLS`; MLB versioned contracts are dead declarations (CONFIRMED)
-- **Source (working tree == `86cff77`):** `core/optimization/adapters.py:359-361` imports the unversioned `FEATURE_COLS`/`RUN_FEATURE_COLS` from `sports.mlb.feature_registry` and binds both MLB scopes to them (lines 395-396, 434-435). The MLB versioned contracts (`MONEYLINE_FEATURE_COLS`/`MARKET_FEATURE_COLS`, `sports/mlb/feature_registry.py:139-142`) have **zero consumers** outside the declaring module — `git grep` for those symbols across `sports/mlb` excluding the registry returns nothing, and `sports/mlb/study_config.py` carries **neither** `moneyline_feature_cols` nor `market_feature_cols` (unlike NFL/NHL/NBA).
+### B-008 — MLB scope bound bare `FEATURE_COLS`/`RUN_FEATURE_COLS`; MLB versioned contracts were dead declarations (RESOLVED in Phase 7.5b)
+- **Original source (working tree == `86cff77`):** `core/optimization/adapters.py:359-361` imported the unversioned `FEATURE_COLS`/`RUN_FEATURE_COLS` from `sports.mlb.feature_registry` and bound both MLB scopes to them. The MLB versioned contracts had zero consumers outside the declaring module, and `sports/mlb/study_config.py` carried neither binding.
 - **Masked verification:** Phase 7.5 Gate 5's adapter-binding verification was **incomplete/masked** — it verified the NFL/NBA/NHL scope bindings and MLB contract *content/identity* but did not check that MLB's adapter path bypasses the versioned contract names entirely.
-- **Defect class:** GUARDRAILS §17 / hardened rule on versioned scope contracts; plus rule 2/4 (dead declarations with no live consumer).
-- **Suggested fix:** add the `moneyline_feature_cols`/`market_feature_cols` bindings to the MLB study config and rebind both MLB adapter scopes to the versioned contracts (mirroring NFL/NBA/NHL).
-- **Enforced by:** `tests/core/test_spec_guardrails.py::test_no_bare_feature_contract_import_by_adapters` (strict xfail, B-008).
-- **Assigned:** Phase 7.5d.
+- **Resolution (Phase 7.5b):** registries own explicit, independent versioned contracts; legacy `FEATURE_COLS`/`RUN_FEATURE_COLS` deleted repo-wide; MLB adapter rewired to the versioned contracts; MLBStudy now binds all four contract fields. Legacy tokens are guardrail-forbidden; the strict xfail is removed and the check is a hard-passing test.
+- **Enforced by:** `tests/core/test_spec_guardrails.py::test_no_bare_feature_contract_import_by_adapters` (hard test) + `test_legacy_contract_symbols_absent_from_production` + `tests/test_scope_contracts.py` registry-source/bindings assertions.
+- **Status:** CLOSED (Phase 7.5b).
 
 ### B-009 — `core/optimization/adapters.py` reaches into `sports.*` via function-local imports
 - **Source:** `core/optimization/adapters.py` lines 152–154, 212–215, 283–285 (lazy `sports.*` imports; no module-level circularity, but inverted dependency direction).

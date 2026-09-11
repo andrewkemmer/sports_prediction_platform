@@ -1,9 +1,12 @@
 """Regression: per-sport scope contracts are independent and versioned.
 
-Phase 7.5 Task 2 gate (addendum D): every sport must declare DISTINCT,
-versioned moneyline and market feature contracts, and the optimization
-adapter layer must bind each scope to its OWN contract — no aliasing,
-no inherited lists, no missing version metadata.
+Phase 7.5 Task 2 gate (addendum D) + Phase 7.5b canonical ownership:
+every sport must declare DISTINCT, versioned moneyline and market feature
+contracts in its feature REGISTRY, the study config must import+bind them,
+and the optimization adapter layer must bind each scope to its OWN
+contract — no aliasing, no inherited lists, no missing version metadata,
+and the MLB adapter must never bypass the versioned contracts (the gap
+that masked the original Gate 5 verification must not recur).
 
 Three assertions per sport (all three required; unequal list contents
 alone is NOT sufficient):
@@ -42,9 +45,9 @@ def _sport_contracts(module_name: str):
 
 SPORT_MODULES = {
     "mlb": "sports.mlb.feature_registry",
-    "nfl": "sports.nfl.study_config",
-    "nba": "sports.nba.study_config",
-    "nhl": "sports.nhl.study_config",
+    "nfl": "sports.nfl.feature_registry",
+    "nba": "sports.nba.feature_registry",
+    "nhl": "sports.nhl.feature_registry",
 }
 
 
@@ -52,6 +55,7 @@ def _study_modules():
     import importlib
 
     return {
+        "mlb": importlib.import_module("sports.mlb.study_config"),
         "nfl": importlib.import_module("sports.nfl.study_config"),
         "nba": importlib.import_module("sports.nba.study_config"),
         "nhl": importlib.import_module("sports.nhl.study_config"),
@@ -138,8 +142,9 @@ def test_scope_contracts_independent_and_versioned(sport: str) -> None:
         f"{sport}: market contract version must be a non-empty string")
     if sport == "mlb":
         # MLB's contract versions are declared in the feature registry —
-        # the MLB production contract location (MLBStudy has no version
-        # fields; the registry IS the served contract).
+        # the MLB production contract location — AND carried by MLBStudy
+        # (Phase 7.5b: MLBStudy binds moneyline/market feature cols and
+        # versions like the other sports).
         from sports.mlb import feature_registry as mlb_registry
 
         ml_carried = mlb_registry.MONEYLINE_CONTRACT_VERSION
@@ -186,3 +191,88 @@ def test_adapter_default_scopes_bind_own_contract() -> None:
     assert tuple(ml.prod_features) == ("feat_a", "feat_b"), (
         "moneyline scope mutated by a market-scope replace()")
     assert tuple(mk2.prod_features) == ("only_market",)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7.5b — canonical registry ownership
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sport", sorted(SPORT_MODULES))
+def test_registry_owns_declared_contracts(sport: str) -> None:
+    """The feature registry (not study_config) declares both contracts via
+    explicit tuple([...]) constructions; registry imports no study_config."""
+    import ast
+    import importlib
+    from pathlib import Path
+
+    mod = importlib.import_module(f"sports.{sport}.feature_registry")
+    ml_cols = getattr(mod, "MONEYLINE_FEATURE_COLS")
+    mk_cols = getattr(mod, "MARKET_FEATURE_COLS")
+    ml_ver = getattr(mod, "MONEYLINE_CONTRACT_VERSION")
+    mk_ver = getattr(mod, "MARKET_CONTRACT_VERSION")
+
+    # explicit tuple([...]) construction: distinct objects, non-empty
+    assert isinstance(ml_cols, tuple) and ml_cols
+    assert isinstance(mk_cols, tuple) and mk_cols
+    assert ml_cols is not mk_cols, f"{sport}: registry contracts alias"
+    assert ml_ver and mk_ver and ml_ver != mk_ver
+
+    # Registry source: no study_config import (Task 1.4).
+    reg_path = Path(importlib.import_module(
+        f"sports.{sport}.feature_registry").__file__)
+    tree = ast.parse(reg_path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            assert not node.module.startswith(
+                f"sports.{sport}.study_config"), (
+                f"{sport}: registry imports study_config (ownership inverted)")
+
+
+@pytest.mark.parametrize("sport", sorted(SPORT_MODULES))
+def test_study_config_imports_and_binds_registry_contracts(sport: str) -> None:
+    """Every study_config imports the registry's four symbols and binds all
+    four onto the study dataclass; no study_config declares lists directly."""
+    import ast
+    import importlib
+    from pathlib import Path
+
+    mod = importlib.import_module(f"sports.{sport}.study_config")
+
+    # re-exports present
+    for sym in ("MONEYLINE_FEATURE_COLS", "MARKET_FEATURE_COLS",
+                "MONEYLINE_CONTRACT_VERSION", "MARKET_CONTRACT_VERSION"):
+        assert hasattr(mod, sym), f"{sport}: study_config missing re-export {sym}"
+
+    # registry identity (import, not re-declaration)
+    reg = importlib.import_module(f"sports.{sport}.feature_registry")
+    assert mod.MONEYLINE_FEATURE_COLS is reg.MONEYLINE_FEATURE_COLS, (
+        f"{sport}: study_config MONEYLINE list is not the registry object")
+    assert mod.MARKET_FEATURE_COLS is reg.MARKET_FEATURE_COLS, (
+        f"{sport}: study_config MARKET list is not the registry object")
+
+    # study instance carries all four bindings
+    loader_name = {"mlb": "load_mlb_study", "nfl": "load_nfl_study",
+                   "nba": "load_nba_study", "nhl": "load_nhl_study"}[sport]
+    st = getattr(mod, loader_name)()
+    assert tuple(st.moneyline_feature_cols) == tuple(reg.MONEYLINE_FEATURE_COLS)
+    assert tuple(st.market_feature_cols) == tuple(reg.MARKET_FEATURE_COLS)
+    assert st.moneyline_contract_version == reg.MONEYLINE_CONTRACT_VERSION
+    assert st.market_contract_version == reg.MARKET_CONTRACT_VERSION
+
+    # no direct list declaration in study_config source
+    src_path = Path(mod.__file__)
+    tree = ast.parse(src_path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) \
+                else [node.target]
+            for t in targets:
+                if isinstance(t, ast.Name) and t.id in (
+                        "MONEYLINE_FEATURE_COLS", "MARKET_FEATURE_COLS"):
+                    # re-export bindings to the registry object are fine;
+                    # literal declarations are not
+                    val = getattr(node, "value", None)
+                    ok = isinstance(val, ast.Name) or (
+                        isinstance(val, ast.Call) and not val.args)
+                    assert ok, (
+                        f"{sport}: study_config declares {t.id} directly")

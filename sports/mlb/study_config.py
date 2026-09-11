@@ -19,6 +19,19 @@ from core.config import WalkForwardConfig
 from core.dates import is_valid_compact_date
 from core.warmup import WarmupConfig
 
+#: Phase 7.5b canonical contract ownership: the feature contracts are
+#: DECLARED in ``sports.mlb.feature_registry`` and imported here — the
+#: study config binds them onto the study dataclass but never declares
+#: feature lists directly.
+from sports.mlb.feature_registry import (  # noqa: E402
+    MARKET_CONTRACT_VERSION,
+    MARKET_FEATURE_COLS,
+    MONEYLINE_CONTRACT_VERSION,
+    MONEYLINE_FEATURE_COLS,
+    PRIOR_MARKET_CONTRACT_VERSION,
+    PRIOR_MONEYLINE_CONTRACT_VERSION,
+)
+
 
 class MLBStudyError(ValueError):
     """Raised when the MLB study configuration is missing or invalid."""
@@ -83,6 +96,10 @@ class MLBStudy:
     frontend_days: int
     allowlisted_families: tuple[str, ...]
     retention_exempt_families: tuple[str, ...]
+    moneyline_feature_cols: tuple[str, ...] = MONEYLINE_FEATURE_COLS
+    moneyline_contract_version: str = MONEYLINE_CONTRACT_VERSION
+    market_feature_cols: tuple[str, ...] = MARKET_FEATURE_COLS
+    market_contract_version: str = MARKET_CONTRACT_VERSION
     source_path: Path | None = None
 
     @property
@@ -219,5 +236,9 @@ def load_mlb_study(path: str | Path | None = None) -> MLBStudy:
         frontend_days=frontend_days,
         allowlisted_families=allow,
         retention_exempt_families=exempt,
+        moneyline_feature_cols=MONEYLINE_FEATURE_COLS,
+        moneyline_contract_version=MONEYLINE_CONTRACT_VERSION,
+        market_feature_cols=MARKET_FEATURE_COLS,
+        market_contract_version=MARKET_CONTRACT_VERSION,
         source_path=p,
     )

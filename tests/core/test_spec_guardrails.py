@@ -216,16 +216,11 @@ def _same_sport_import(offender: str) -> bool:
     return sport_of_path is not None and "sports/" in path_part
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-008: core/optimization/adapters.py consumes the bare, "
-           "unversioned FEATURE_COLS frozen view for the MLB scope; "
-           "remediation in Phase 7.5d",
-)
 def test_no_bare_feature_contract_import_by_adapters():
-    """B-008: the optimization adapter layer still binds the MLB scope to
-    the bare FEATURE_COLS symbol (line 359 of adapters.py) rather than a
-    versioned, scope-specific contract. Passes once remediated."""
+    """B-008 (resolved in Phase 7.5b): the optimization adapter layer must
+    bind the MLB scope to the versioned, scope-specific contracts — never
+    the bare frozen-view symbols. Previously a strict xfail while the
+    blocker was open; now enforced as a hard-passing test."""
     offenders: list[str] = []
     for path in _py_files("core", "sports"):
         if path.name in ("feature_registry.py", "study_config.py"):
@@ -244,6 +239,34 @@ def test_no_bare_feature_contract_import_by_adapters():
                                 for a in node.names)):
                     offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
     assert not offenders, f"bare contract symbols imported by adapters: {offenders}"
+
+
+def test_legacy_contract_symbols_absent_from_production():
+    """Phase 7.5b: the legacy contract symbols are forbidden tokens in
+    production modules. Tokens are constructed dynamically so this test
+    file never self-references them."""
+    legacy = {
+        "RUN" + "_FEATURE_COLS",
+        "run" + "_feature_cols",
+        # bare frozen-view symbol: matches FEATURE_COLS but NOT the
+        # versioned MONEYLINE_/MARKET_ prefixed contracts
+        "FEATURE" + "_COLS",
+    }
+    offenders: list[str] = []
+    for path in _py_files("core", "sports"):
+        rel = str(path.relative_to(REPO_ROOT))
+        for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1):
+            code = line.split("#")[0]  # comments may narrate history
+            for token in legacy:
+                if token in code:
+                    # allow the versioned-prefixed forms for the bare token
+                    if token == "FEATURE" + "_COLS" and (
+                            "MONEYLINE" + "_FEATURE_COLS" in code
+                            or "MARKET" + "_FEATURE_COLS" in code):
+                        continue
+                    offenders.append(f"{rel}:{lineno}:{token}")
+    assert not offenders, f"legacy contract symbols in production code: {offenders}"
 
 
 # ---------------------------------------------------------------------------

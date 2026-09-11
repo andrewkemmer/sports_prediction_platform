@@ -32,8 +32,7 @@ import pandas as pd
 from sklearn.metrics import log_loss, roc_auc_score
 
 from sports.mlb.feature_registry import (
-    RUN_DROPPED_COLS,
-    RUN_FEATURE_COLS,
+    MARKET_FEATURE_COLS,
 )
 from core.folds import walk_forward_splits
 
@@ -83,7 +82,7 @@ RUN_LEVEL_ENV_FEATURES = (
 OOF_COLUMNS = ["game_pk", "game_date", "home_expected_runs",
                "away_expected_runs", "home_score", "away_score"]
 
-assert len(RUN_FEATURE_COLS) == 53 and len(RUN_DROPPED_COLS) == 14
+assert len(MARKET_FEATURE_COLS) == 53
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +117,7 @@ def build_side_frame(games: pd.DataFrame, side: str,
     columns surface as NaN (LightGBM routes NaN natively).
     """
     feats = list(run_features) if run_features is not None \
-        else list(RUN_FEATURE_COLS)
+        else list(MARKET_FEATURE_COLS)
     if include_level_env:
         present = [c for c in RUN_LEVEL_ENV_FEATURES if c in games.columns]
         missing = [c for c in RUN_LEVEL_ENV_FEATURES if c not in games.columns]

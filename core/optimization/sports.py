@@ -40,7 +40,7 @@ NHL_RAW_FIELDS = (
 )
 MLB_RAW_FIELDS = ()  # unused — MLB names its sides ``*_home``/``*_away``
 # MLB per-side pool for the moneyline scope: the per-side members of the
-# frozen 64-column FEATURE_COLS moneyline view (the MLB convention:
+# frozen 64-column moneyline contract view (the MLB convention:
 # ``home_elo`` not ``elo_home``). The 13 pairs generated here are exactly
 # the derivation bases the served frame carries.
 MLB_SIDE_FIELDS = (
@@ -56,7 +56,7 @@ MLB_SIDE_FIELDS = (
     "team_exitvelo_15g_home", "team_exitvelo_15g_away",
 )
 # MLB per-side pool for the market (run-engine) scope: the per-side
-# members of the frozen 53-column RUN_FEATURE_COLS lambda view — the
+# members of the frozen 53-column market contract lambda view — the
 # distribution model's own regressand geometry, independent of the
 # moneyline's.
 MLB_RUN_SIDE_FIELDS = MLB_SIDE_FIELDS
@@ -107,11 +107,11 @@ def mlb_scopes(ml_incumbent: tuple[str, ...],
                run_incumbent: tuple[str, ...]) -> tuple[ModelScope, ...]:
     """MLB's two independent scopes (each with its OWN frame contract).
 
-    moneyline: the frozen 64-column FEATURE_COLS view (incumbent minus
+    moneyline: the frozen 64-column moneyline contract view (incumbent minus
     its per-side members) over the moneyline candidate frame; target
     home_win (binary, probability metrics).
 
-    market: the frozen 53-column RUN_FEATURE_COLS run-engine lambda view
+    market: the frozen 53-column market contract run-engine lambda view
     (incumbent minus its per-side members) over the run-engine frame;
     target margin (the distribution engine's regressand, regression
     metrics). Each scope's feature list is NEVER inferred from the

@@ -346,10 +346,11 @@ def mlb_adapters(study=None) -> dict[str, dict]:
     changes.
 
     Scope frames (INDEPENDENT, mirroring production):
-    * moneyline — the frozen 64-column FEATURE_COLS candidate frame; the
-      incumbent view is that list, the candidate raw pool is its per-side
-      members (the MLB convention: ``home_elo`` not ``elo_home``).
-    * market — the frozen 53-column RUN_FEATURE_COLS run-engine frame;
+    * moneyline — the frozen 64-column MONEYLINE_FEATURE_COLS candidate
+      frame; the incumbent view is that list, the candidate raw pool is
+      its per-side members (the MLB convention: ``home_elo`` not
+      ``elo_home``).
+    * market — the frozen 53-column MARKET_FEATURE_COLS run-engine frame;
       the incumbent view is that list (minus its per-side members), the
       candidate raw pool is those per-side members. The target is the
       run-engine regressand ``margin`` (home_score - away_score on the
@@ -357,8 +358,8 @@ def mlb_adapters(study=None) -> dict[str, dict]:
     """
     from core.folds import walk_forward_splits
     from sports.mlb.feature_registry import (
-        FEATURE_COLS,
-        RUN_FEATURE_COLS,
+        MARKET_FEATURE_COLS,
+        MONEYLINE_FEATURE_COLS,
         build_candidate_frame,
         derive_diff_features,
         ensure_feature_columns,
@@ -392,8 +393,8 @@ def mlb_adapters(study=None) -> dict[str, dict]:
                 incumbent.append(f)
         return tuple(pool), tuple(incumbent)
 
-    ml_side, ml_incumbent = _split(FEATURE_COLS)
-    run_side, run_incumbent = _split(RUN_FEATURE_COLS)
+    ml_side, ml_incumbent = _split(MONEYLINE_FEATURE_COLS)
+    run_side, run_incumbent = _split(MARKET_FEATURE_COLS)
 
     def load_decided() -> pd.DataFrame:
         game_df, _ = _mlb_feature_frames(cache)
@@ -431,8 +432,8 @@ def mlb_adapters(study=None) -> dict[str, dict]:
                                      "home_score", "away_score",
                                      "total_runs")
                                     if c in slate.columns])
-        slate = ensure_feature_columns(slate, FEATURE_COLS)
-        slate = ensure_feature_columns(slate, RUN_FEATURE_COLS)
+        slate = ensure_feature_columns(slate, MONEYLINE_FEATURE_COLS)
+        slate = ensure_feature_columns(slate, MARKET_FEATURE_COLS)
         if "game_date" not in slate.columns:
             raise ValueError(
                 "mlb adapter: slate lost game_date after composition")

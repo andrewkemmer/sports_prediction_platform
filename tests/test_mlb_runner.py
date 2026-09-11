@@ -166,25 +166,25 @@ def test_shap_count_rule_exactly_one_per_slate_game():
     """The SHAP contract: EXACTLY one shap_game file per undecided slate
     game — no fixed minimum (the old 'six files' rule is removed)."""
     from sports.mlb.runner import _write_slate_shap
-    from sports.mlb.feature_registry import FEATURE_COLS
+    from sports.mlb.feature_registry import MONEYLINE_FEATURE_COLS
     rng = np.random.default_rng(3)
     n = 120
     decided = pd.DataFrame({
         "home_win": rng.integers(0, 2, n).astype(float)})
-    for c in FEATURE_COLS:
+    for c in MONEYLINE_FEATURE_COLS:
         decided[c] = rng.normal(size=n)
     slate = decided.iloc[:4].drop(columns=["home_win"]).copy()
     slate["home_team"] = ["BOS", "NYY", "LAD", "ATL"]
     slate["away_team"] = ["NYY", "BOS", "SD", "NYM"]
     with tempfile.TemporaryDirectory() as td:
         written = _write_slate_shap(Path(td), "20260907", slate, decided,
-                                    FEATURE_COLS)
+                                    MONEYLINE_FEATURE_COLS)
         assert len(written) == len(slate), "one file per slate game"
         keys = [p.name.split("_", 2)[2] for p in written]
         assert len(set(keys)) == len(keys), "unique per game"
         # Empty slate -> zero files (0 == len(slate), no minimum).
         empty = _write_slate_shap(Path(td), "20260907",
-                                  slate.iloc[:0], decided, FEATURE_COLS)
+                                  slate.iloc[:0], decided, MONEYLINE_FEATURE_COLS)
         assert empty == []
 
 

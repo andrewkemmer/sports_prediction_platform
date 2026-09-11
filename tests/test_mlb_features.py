@@ -20,8 +20,8 @@ from sports.mlb.frames import (
     get_decided_frame,
 )
 from sports.mlb.feature_registry import (
-    FEATURE_COLS,
-    RUN_FEATURE_COLS,
+    MARKET_FEATURE_COLS,
+    MONEYLINE_FEATURE_COLS,
     build_candidate_frame,
     derive_diff_features,
 )
@@ -121,12 +121,12 @@ def test_candidate_frame_feature_coverage(feature_frame):
     game_df, _ = feature_frame
     decided = get_decided_frame(game_df)
     cand, feature_cols = build_candidate_frame(decided)
-    assert feature_cols == FEATURE_COLS
-    for col in FEATURE_COLS:
+    assert feature_cols == MONEYLINE_FEATURE_COLS
+    for col in MONEYLINE_FEATURE_COLS:
         assert col in cand.columns, col
-    for col in RUN_FEATURE_COLS:
+    for col in MARKET_FEATURE_COLS:
         assert col in cand.columns, col
-    coverage = cand[list(FEATURE_COLS)].notna().mean()
+    coverage = cand[list(MONEYLINE_FEATURE_COLS)].notna().mean()
     # Baselines like is_home are fully covered; rolling metrics cover most
     # of the frame after warmup.
     assert coverage["is_home"] == 1.0

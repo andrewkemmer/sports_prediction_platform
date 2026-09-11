@@ -131,43 +131,22 @@ class MarketConfig:
         return list(range(lo, hi + 1))
 
 
-#: The served production feature pool, ORDERED (nhl-prod-v1; is_home is a
-#: constant anchor excluded from this list). All are schedule-derivable
-#: point-in-time facts. Goalie-panel stats are display-only and
-#: deliberately absent (see study.yaml windows note).
-FEATURE_COLUMNS: tuple[str, ...] = (
-    "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
-    "ewm_net_goals_diff", "travel_miles_diff", "div_game", "prime_time",
+#: Phase 7.5b canonical contract ownership: the feature contracts are
+#: DECLARED in ``sports.nhl.feature_registry`` and imported here — the
+#: study config binds them onto the study dataclass but never declares
+#: feature lists directly.
+from sports.nhl.feature_registry import (  # noqa: E402
+    MARKET_CONTRACT_VERSION,
+    MARKET_FEATURE_COLS,
+    MONEYLINE_CONTRACT_VERSION,
+    MONEYLINE_FEATURE_COLS,
+    PRIOR_CONTRACT_VERSION,
 )
 
-#: Phase 7.5 Task 2 — versioned per-model contracts (rename/remap ONLY).
-#: The served pool is carried over byte-identical; the single historic
-#: list is now declared twice as two INDEPENDENT model contracts so
-#: neither model can inherit the other's list. Prior version string
-#: preserved for provenance.
-
-#: Versioned moneyline (binary home_win) feature contract — v75: the
-#: restructured contract-format version (explicit per-model declarations
-#: replacing the single shared pool). Feature list identical to the
-#: historic ``FEATURE_COLUMNS`` (prior version: nhl-prod-v1).
-#: Declared INDEPENDENTLY (not an alias of FEATURE_COLUMNS) so neither
-#: model can inherit the other's list; content identical to the historic
-#: pool (behavior-neutral).
-MONEYLINE_FEATURE_COLS: tuple[str, ...] = tuple([
-    "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
-    "ewm_net_goals_diff", "travel_miles_diff", "div_game", "prime_time",
-])
-MONEYLINE_CONTRACT_VERSION = "nhl-moneyline-v75"
-
-#: Versioned market (margin distribution) feature contract — v75: the
-#: restructured contract-format version. Feature list identical to the
-#: historic ``FEATURE_COLUMNS`` (prior version: nhl-prod-v1).
-#: Declared INDEPENDENTLY (not an alias of FEATURE_COLUMNS).
-MARKET_FEATURE_COLS: tuple[str, ...] = tuple([
-    "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
-    "ewm_net_goals_diff", "travel_miles_diff", "div_game", "prime_time",
-])
-MARKET_CONTRACT_VERSION = "nhl-market-v75"
+#: Historic single-pool name, re-exported from the registry for backward
+#: compatibility with existing consumers (the served pool IS the
+#: moneyline contract).
+FEATURE_COLUMNS: tuple[str, ...] = MONEYLINE_FEATURE_COLS
 
 
 @dataclass(frozen=True)

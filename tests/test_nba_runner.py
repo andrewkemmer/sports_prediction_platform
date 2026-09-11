@@ -101,9 +101,11 @@ class TestAdapter:
         assert "nba_shap_game" not in exempt
 
     def test_feature_contract(self):
+        from sports.nba.feature_registry import MONEYLINE_CONTRACT_VERSION
+
         fc = NBAAdapter().feature_contract()
         assert fc.sport == "nba"
-        assert fc.version == "nba-prod-v1"
+        assert fc.version == MONEYLINE_CONTRACT_VERSION
         assert len(fc.features) > 0
 
     def test_normalize_games_semantics(self):

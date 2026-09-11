@@ -214,7 +214,7 @@ def test_mlb_adapter_binds_through_production_composition(monkeypatch, tmp_path)
     assert "margin" in df.columns and df["margin"].notna().all()
     # The incumbent view keeps NO twin-pair member (those form the
     # derivation pool); is_home has no away twin and stays served.
-    from sports.mlb.feature_registry import FEATURE_COLS as _FROZEN
+    from sports.mlb.feature_registry import MONEYLINE_FEATURE_COLS as _FROZEN
     frozen = set(_FROZEN)
     assert not any(f.endswith("_home")
                    and f"{f[:-len('_home')]}_away" in frozen

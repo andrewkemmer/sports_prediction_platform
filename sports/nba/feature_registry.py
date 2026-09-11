@@ -22,13 +22,39 @@ import numpy as np
 import pandas as pd
 
 from core.contracts import FeatureContract, FeatureSpec
-from sports.nba.study_config import FEATURE_COLUMNS, load_nba_study
 
 logger = logging.getLogger(__name__)
 
 
 class NBARegistryError(ValueError):
     """Raised when a feature-registry derivation would violate policy."""
+
+
+# ---------------------------------------------------------------------------
+# Versioned per-model contracts (Phase 7.5b canonical registry ownership)
+# ---------------------------------------------------------------------------
+# The registry OWNS both contracts: explicit, independent tuple([...])
+# constructions (no aliases, no shared objects). Content is byte-identical
+# to the historic single pool (prior version: nba-prod-v1) — behavior-neutral.
+
+MONEYLINE_FEATURE_COLS: tuple[str, ...] = tuple([
+    "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
+    "ewm_net_pts_diff", "travel_miles_diff", "conf_game", "prime_time",
+])
+MONEYLINE_CONTRACT_VERSION = "nba-moneyline-v75"
+
+MARKET_FEATURE_COLS: tuple[str, ...] = tuple([
+    "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
+    "ewm_net_pts_diff", "travel_miles_diff", "conf_game", "prime_time",
+])
+MARKET_CONTRACT_VERSION = "nba-market-v75"
+
+#: Prior provenance version (single shared pool before Phase 7.5 Task 2).
+PRIOR_CONTRACT_VERSION = "nba-prod-v1"
+
+#: Historic single-pool name retained as a re-export of the moneyline
+#: contract (the served feature pool IS the moneyline view).
+FEATURE_COLUMNS: tuple[str, ...] = MONEYLINE_FEATURE_COLS
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +159,7 @@ def build_feature_contract() -> FeatureContract:
                      "mlp"),
             tooltip=d["summary"],
         ))
-    return FeatureContract(sport="nba", version="nba-prod-v1",
+    return FeatureContract(sport="nba", version=MONEYLINE_CONTRACT_VERSION,
                            features=tuple(specs))
 
 

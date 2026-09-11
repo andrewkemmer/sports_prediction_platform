@@ -22,13 +22,43 @@ import numpy as np
 import pandas as pd
 
 from core.contracts import FeatureContract, FeatureSpec
-from sports.nfl.study_config import FEATURE_COLUMNS, load_nfl_study
 
 logger = logging.getLogger(__name__)
 
 
 class NFLRegistryError(ValueError):
     """Raised when a feature-registry derivation would violate policy."""
+
+
+# ---------------------------------------------------------------------------
+# Versioned per-model contracts (Phase 7.5b canonical registry ownership)
+# ---------------------------------------------------------------------------
+# The registry OWNS both contracts: explicit, independent tuple([...])
+# constructions (no aliases, no shared objects). Content is byte-identical
+# to the historic single pool (prior version: nfl-prod-v1) — behavior-neutral.
+
+MONEYLINE_FEATURE_COLS: tuple[str, ...] = tuple([
+    "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
+    "ewm_net_pts_diff", "ewm_ypp_diff",
+    "pace_plays_min_diff", "rest_short_diff", "div_game",
+    "travel_miles_diff", "altitude_home", "prime_time",
+])
+MONEYLINE_CONTRACT_VERSION = "nfl-moneyline-v75"
+
+MARKET_FEATURE_COLS: tuple[str, ...] = tuple([
+    "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
+    "ewm_net_pts_diff", "ewm_ypp_diff",
+    "pace_plays_min_diff", "rest_short_diff", "div_game",
+    "travel_miles_diff", "altitude_home", "prime_time",
+])
+MARKET_CONTRACT_VERSION = "nfl-market-v75"
+
+#: Prior provenance version (single shared pool before Phase 7.5 Task 2).
+PRIOR_CONTRACT_VERSION = "nfl-prod-v1"
+
+#: Historic single-pool name retained as a re-export of the moneyline
+#: contract (the served feature pool IS the moneyline view).
+FEATURE_COLUMNS: tuple[str, ...] = MONEYLINE_FEATURE_COLS
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +188,7 @@ def build_feature_contract() -> FeatureContract:
                      "mlp"),
             tooltip=d["summary"],
         ))
-    return FeatureContract(sport="nfl", version="nfl-prod-v1",
+    return FeatureContract(sport="nfl", version=MONEYLINE_CONTRACT_VERSION,
                            features=tuple(specs))
 
 
