@@ -14,10 +14,10 @@ alone is NOT sufficient):
 1. Identity: the moneyline and market contract objects are distinct —
    the scope tuples must not be the same Python object (no shared
    identity), and each must be an ordered, non-empty tuple of strings.
-2. Adapter selection: ``core.optimization.adapters`` binds each scope to
-   the contract list declared for THAT scope (market never inherits the
-   moneyline list and vice versa), verified via the adapters' scope
-   bindings rather than list equality.
+2. Adapter selection: each sport's ``sports/<sport>/optimization.py``
+   adapter binds each scope to the contract list declared for THAT scope
+   (market never inherits the moneyline list and vice versa), verified via
+   the adapters' scope bindings rather than list equality.
 3. Version metadata: both scope versions are present, non-empty, and
    DIFFER from each other (cross-scope divergence), and match the
    study-config-carried versions.
@@ -88,13 +88,16 @@ def test_scope_contracts_independent_and_versioned(sport: str) -> None:
         f"(both are {ml_ver!r})")
 
     # --- (ii) adapter selects the correct scope contract ------------------
-    from core.optimization import adapters
+    from sports.mlb.optimization import mlb_adapters
+    from sports.nba.optimization import nba_adapters
+    from sports.nfl.optimization import nfl_adapters
+    from sports.nhl.optimization import nhl_adapters
 
     builder = {
-        "mlb": adapters.mlb_adapters,
-        "nfl": adapters.nfl_adapters,
-        "nba": adapters.nba_adapters,
-        "nhl": adapters.nhl_adapters,
+        "mlb": mlb_adapters,
+        "nfl": nfl_adapters,
+        "nba": nba_adapters,
+        "nhl": nhl_adapters,
     }[sport]
     study = None
     try:

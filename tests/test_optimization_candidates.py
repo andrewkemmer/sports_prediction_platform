@@ -477,6 +477,51 @@ def test_run_optimization_defers_scope_without_adapter():
     assert out["nba/moneyline"]["deferred"] is True
 
 
+def test_registry_adapters_run_end_to_end_and_write_nothing(monkeypatch,
+                                                            tmp_path):
+    """WS6/B-009: the composition root builds the REAL per-sport adapters
+    and the shared runner executes them end-to-end.
+
+    Constructing adapters through ``SPORT_ADAPTER_BUILDERS`` and running
+    the real ``run_optimization(config, adapters)`` is required evidence —
+    import-only coverage is insufficient. The synthetic store is created
+    first; its contents are snapshotted, the optimization runs, and the
+    store must be byte-identical afterwards (no artifact write, no store
+    mutation, no new files)."""
+    import sports.nba.optimization as nba_optimization
+    from sports.optimization_adapters import SPORT_ADAPTER_BUILDERS
+    from tests.nba_fixtures import make_schedule
+
+    store = tmp_path / "store"
+    raw = store / "nba" / "raw"
+    raw.mkdir(parents=True)
+    make_schedule(start_season=2014, n_seasons=4, weeks_per_season=10) \
+        .to_parquet(raw / "schedule.parquet", index=False)
+    monkeypatch.setattr(nba_optimization, "STORE", store)
+
+    def snapshot() -> dict:
+        return {p.relative_to(store).as_posix(): p.read_bytes()
+                for p in sorted(store.rglob("*")) if p.is_file()}
+
+    before = snapshot()
+    assert before, "the synthetic store must exist before the run"
+
+    adapters = SPORT_ADAPTER_BUILDERS["nba"](None)
+    assert set(adapters) == {"nba/moneyline", "nba/market"}
+    key = "nba/moneyline"
+    scope = adapters[key].pop("_scope")
+    cfg = OptimizationConfig(bounds=Bounds(max_seconds=60.0, sweep_cap=4),
+                             scopes=(scope,))
+    out = run_optimization(cfg, {key: adapters[key]})
+
+    result = out[key]
+    assert result.get("deferred") is not True, "registry adapter must bind"
+    assert "winner" in result and "results" in result
+    assert result["n_candidate_sets"] > 0
+    # No artifact write / no store mutation after the run.
+    assert snapshot() == before
+
+
 def test_default_scopes_are_independent_per_model():
     ml, mk = default_scopes("nba", PROD)
     assert ml.model == "moneyline" and mk.model == "market"

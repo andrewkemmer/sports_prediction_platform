@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.optimization.adapters import mlb_adapters
+from sports.mlb.optimization import mlb_adapters
 from core.optimization.candidates import (
     build_candidates,
     candidate_catalog_fingerprint,
@@ -73,7 +73,7 @@ def test_mlb_scope_pools_have_complete_home_away_pairs():
 
 def test_mlb_adapter_defers_without_store(monkeypatch, tmp_path):
     """No real store -> no adapters (the runner reports DEFERRED)."""
-    import core.optimization.adapters as mod
+    import sports.mlb.optimization as mod
     monkeypatch.setattr(mod, "STORE", tmp_path)
     assert mlb_adapters(None) == {}
 
@@ -175,7 +175,7 @@ def test_mlb_adapter_binds_through_production_composition(monkeypatch, tmp_path)
     """With a store present the adapter must bind both scopes, split the
     frozen views into incumbent minus per-side members, and attach the
     run-engine regressand to decided rows only."""
-    import core.optimization.adapters as mod
+    import sports.mlb.optimization as mod
 
     fake_cache = tmp_path / "mlb" / "raw" / "pitches.parquet"
     fake_cache.parent.mkdir(parents=True, exist_ok=True)
@@ -227,7 +227,7 @@ def test_mlb_adapter_scope_pools_intersect_frame_columns(monkeypatch, tmp_path):
     """The raw pool the adapter exposes must be the scope's declared
     fields intersected with the frame's numeric columns — declared-but-
     absent fields drop out; non-declared columns never leak in."""
-    import core.optimization.adapters as mod
+    import sports.mlb.optimization as mod
 
     fake_cache = tmp_path / "mlb" / "raw" / "pitches.parquet"
     fake_cache.parent.mkdir(parents=True, exist_ok=True)
@@ -264,7 +264,7 @@ def test_mlb_adapter_scope_pools_intersect_frame_columns(monkeypatch, tmp_path):
 def test_mlb_adapter_slate_has_no_outcome_columns(monkeypatch, tmp_path):
     """Slate rows are pre-game: no outcome column may be present
     (the PIT gate and slate-availability gate depend on this)."""
-    import core.optimization.adapters as mod
+    import sports.mlb.optimization as mod
 
     fake_cache = tmp_path / "mlb" / "raw" / "pitches.parquet"
     fake_cache.parent.mkdir(parents=True, exist_ok=True)
@@ -301,7 +301,7 @@ def test_mlb_adapter_fold_filter_matches_study_rules(monkeypatch, tmp_path):
     """build_folds applies the study.yaml OOF rules: folds below the min
     training rows or below min_val_games are skipped; surviving folds are
     positional expanding-window splits in chronological order."""
-    import core.optimization.adapters as mod
+    import sports.mlb.optimization as mod
 
     fake_cache = tmp_path / "mlb" / "raw" / "pitches.parquet"
     fake_cache.parent.mkdir(parents=True, exist_ok=True)

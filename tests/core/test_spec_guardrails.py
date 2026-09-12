@@ -305,22 +305,87 @@ def test_core_never_imports_sports_at_module_level():
     assert not offenders, f"core imports sports.* at module level: {offenders}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-009: core/optimization/adapters.py reaches into sports.* via "
-           "function-local imports (inverted-dependency cleanup pending); "
-           "remediation decision in Phase 7.5d",
-)
 def test_core_never_imports_sports_anywhere():
-    """B-009: policy section 18 says core never imports sports.*; the
-    optimization adapter layer currently does so lazily. Tracked as a
-    blocker until the dependency direction is cleaned up or the policy is
-    amended through section 21."""
+    """B-009 (resolved in Phase 7.5d/WS6): policy section 18 says core
+    never imports sports.*. The optimization adapter bindings now live
+    outside core — ``sports/<sport>/optimization.py`` owns each sport's
+    builder and ``sports/optimization_adapters.py`` is the thin registry —
+    so core has zero sports imports, module-level OR function-local.
+    Previously a strict xfail while the blocker was open; now enforced as
+    a hard-passing test."""
     offenders: list[str] = []
     for path in _py_files("core"):
         for mod in _imports_from(path, "sports"):
             offenders.append(f"{path.relative_to(REPO_ROOT)} -> {mod}")
     assert not offenders, f"core modules import sports.*: {offenders}"
+
+
+def test_core_never_references_sports_by_dynamic_import():
+    """B-009 companion: a static-import guardrail is not enough — core must
+    not reach sports.* through a DYNAMIC import either (no
+    ``importlib.import_module`` / ``__import__`` call carrying a
+    ``sports``-prefixed literal), and no core module may define a string
+    constant naming a ``sports.*`` module. Bare filesystem path components
+    (``"sports"`` as a directory segment in ``core/config.py`` and
+    ``core/storage.py``) are NOT module references and remain permitted."""
+    offenders: list[str] = []
+    for path in _py_files("core"):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        rel = path.relative_to(REPO_ROOT)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) \
+                    else (func.id if isinstance(func, ast.Name) else None)
+                if name in ("import_module", "__import__"):
+                    args = list(node.args) + [k.value for k in node.keywords]
+                    for a in args:
+                        if (isinstance(a, ast.Constant)
+                                and isinstance(a.value, str)
+                                and a.value.split(".")[0] == "sports"):
+                            offenders.append(
+                                f"{rel}:{node.lineno} dynamic import "
+                                f"{a.value!r}")
+            if (isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and node.value.startswith("sports.")):
+                offenders.append(
+                    f"{rel}:{node.lineno} module-name string "
+                    f"{node.value!r}")
+    assert not offenders, (
+        f"core references sports.* dynamically/by module-name string: "
+        f"{offenders}")
+
+
+def test_sport_adapter_registry_lives_outside_core():
+    """B-009 architecture: the per-sport adapter composition root lives
+    under sports/ — its registry keys are exactly the four sports, the
+    module is not under core/, and no ``*_adapters`` builder is defined in
+    any core/ module."""
+    import importlib
+
+    reg = importlib.import_module("sports.optimization_adapters")
+    assert set(reg.SPORT_ADAPTER_BUILDERS) == {"mlb", "nfl", "nhl", "nba"}, (
+        "sport adapter registry keys must be exactly the four sports")
+    reg_path = Path(reg.__file__).resolve()
+    assert (REPO_ROOT / "sports") in reg_path.parents, (
+        f"sport adapter registry must live under sports/, got {reg_path}")
+
+    offenders: list[str] = []
+    for path in _py_files("core"):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in tree.body:  # module scope: builder definitions
+            if isinstance(node, ast.FunctionDef) \
+                    and node.name.endswith("_adapters"):
+                offenders.append(
+                    f"{path.relative_to(REPO_ROOT)}:{node.name}")
+    assert not offenders, f"adapter builders defined under core/: {offenders}"
 
 
 # ---------------------------------------------------------------------------
