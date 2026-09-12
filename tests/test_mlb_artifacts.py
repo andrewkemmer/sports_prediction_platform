@@ -58,6 +58,29 @@ def test_todays_games_columns_match_fixture_exactly():
     assert TODAYS_GAMES_COLUMNS == fixture_cols
 
 
+# ---------------------------------------------------------------------------
+# B-005: .meta.json payloads are registry-validated pre-write; the
+# synthetic `{}` payloads older tests used are invalid-by-contract —
+# production (derive_markets_v3) always emits the full summary.
+# ---------------------------------------------------------------------------
+
+def _markets_meta_payload():
+    """Minimal PRODUCTION-SHAPED run_engine_markets.meta payload (the
+    always-emitted key set of derive_markets_v3)."""
+    return {
+        "n_draws": 200000, "seed": 42, "holdout_cutoff": "2026-08-01",
+        "n_pre": 900, "n_holdout": 100,
+        "line_grid": {"totals": [6.5, 7.0], "run_lines": [-1.0]},
+        "alpha_home": {"curve": []}, "alpha_away": {"curve": []},
+        "year_effect_home": {}, "year_effect_away": {},
+        "phase2_single_alpha": {}, "fit_check_single_alpha": {},
+        "fit_check_alpha_lambda": {}, "variance_check": {},
+        "mc_meta": {}, "k_edge": {"k": 0.0},
+        "agreement_vs_moneyline": {"delta_primary": 0.01},
+        "agreement_slate": {},
+    }
+
+
 def test_market_column_grid_matches_contract():
     over = [c for c in MARKET_COLUMNS_V3 if c.startswith("p_over_")]
     push = [c for c in MARKET_COLUMNS_V3 if c.startswith("p_push_")]
@@ -119,13 +142,14 @@ def test_persist_markets_slate_rows_exempt_from_target_nans(tmp_path):
     slate["home_score"] = pd.NA
     slate["away_score"] = pd.NA
     slate["total_runs"] = pd.NA
-    out = persist_markets(slate, "20260907", {}, out_dir=tmp_path)
+    out = persist_markets(slate, "20260907", _markets_meta_payload(),
+                          out_dir=tmp_path)
     assert out.exists()
 
 
 def test_persist_markets_writes_meta_json(tmp_path):
     out = persist_markets(_markets_frame(), "20260907",
-                          {"seed": 42}, out_dir=tmp_path)
+                          _markets_meta_payload(), out_dir=tmp_path)
     assert out.name == "run_engine_markets_20260907.csv"
     meta = out.parent / "run_engine_markets_20260907.meta.json"
     assert meta.exists()
@@ -216,7 +240,7 @@ def test_write_all_artifacts_produces_fixture_file_set(tmp_path):
         target_date_str="20260907",
         out_dir=tmp_path,
         markets=_markets_frame(),
-        markets_summary={"n_folds": 2},
+        markets_summary=_markets_meta_payload(),
         oof=pd.DataFrame({
             "game_pk": [1], "game_date": ["2026-09-07"],
             "home_expected_runs": [4.5], "away_expected_runs": [3.2],
@@ -303,11 +327,67 @@ def test_shap_game_fixture_filename_shape(tmp_path):
         == FIXTURE["artifacts"]["shap_game"]["columns"]
 
 
+# ---------------------------------------------------------------------------
+# B-005: pre-write record validation — zero-byte-on-failure proofs
+# ---------------------------------------------------------------------------
+
+def test_persist_calibration_rejects_out_of_range_probability(tmp_path):
+    """A structurally complete calibration payload whose nested metrics
+    violate JSON-strictness (NaN) must raise BEFORE any bytes land."""
+    payload = {
+        "date": "2026-09-07", "n_games": 3, "trained_at": "t",
+        "metrics": float("nan"), "calibration_buckets": [],
+        "calibration": [], "daily": [], "league_total": {},
+        "evening_games_league": {}}
+    with pytest.raises(Exception, match="NaN/inf"):
+        persist_calibration(payload, "20260907", out_dir=tmp_path)
+    assert not (tmp_path / "calibration_20260907.json").exists()
+
+
+def test_persist_markets_rejects_out_of_range_probability(tmp_path):
+    """A p_* column outside [0, 1] raises pre-write; the target CSV and
+    the .meta.json companion are both absent (zero bytes)."""
+    frame = _markets_frame()
+    frame.loc[0, "p_home_win_derived"] = 1.2
+    with pytest.raises(Exception, match="outside"):
+        persist_markets(frame, "20260907", _markets_meta_payload(),
+                        out_dir=tmp_path)
+    assert not (tmp_path / "run_engine_markets_20260907.csv").exists()
+    assert not (tmp_path
+                / "run_engine_markets_20260907.meta.json").exists()
+
+
+def test_persist_markets_rejects_bad_meta_before_primary_write(tmp_path):
+    """An invalid .meta.json companion aborts before the primary CSV is
+    serialized — validation happens per artifact, pre-serialization."""
+    bad_meta = _markets_meta_payload()
+    del bad_meta["seed"]
+    with pytest.raises(Exception, match="missing required keys"):
+        persist_markets(_markets_frame(), "20260907", bad_meta,
+                        out_dir=tmp_path)
+    assert not (tmp_path / "run_engine_markets_20260907.meta.json").exists()
+
+
+def test_persist_todays_games_rejects_out_of_range_probability(
+        tmp_path):
+    frame = pd.DataFrame(columns=TODAYS_GAMES_COLUMNS)
+    frame.loc[0] = [0] * len(TODAYS_GAMES_COLUMNS)
+    frame.loc[0, "game_id"] = "g1"
+    frame.loc[0, "home_team"] = "BOS"
+    frame.loc[0, "away_team"] = "NYY"
+    frame.loc[0, "game_date"] = "2026-09-07"
+    frame.loc[0, "home_win_prob_model"] = 1.4
+    with pytest.raises(Exception, match="outside"):
+        persist_todays_games(frame, "20260907", out_dir=tmp_path)
+    assert not (tmp_path / "todays_games_20260907.csv").exists()
+
+
 def test_market_push_semantics_in_written_frame(tmp_path):
     """p_push on half-point totals must be 0.0; on integer lines it may be
     positive (PUSH stays distinct from TIE; MLB moneyline never ties)."""
     frame = _markets_frame()
-    out = persist_markets(frame, "20260907", {}, out_dir=tmp_path)
+    out = persist_markets(frame, "20260907", _markets_meta_payload(),
+                          out_dir=tmp_path)
     df = pd.read_csv(out)
     for l in TOTAL_LINE_GRID:
         col = f"p_push_{_line(l)}"

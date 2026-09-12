@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from core.config import PlatformConfig, default_config
+from core.record_validation import validate_record
 from core.retention import run_production_retention
 from core.runconfig import resolve_run_window
 from sports.nfl.ingestion import (
@@ -366,11 +367,15 @@ def run_nfl_production(
         # OOF stores (backend evaluation data — retention-exempt dir)
         models_dir = sink / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
+        validate_record("nfl", "oof_moneyline", oof_ml)
         oof_ml.to_csv(models_dir / f"nfl_oof_moneyline_{date_c}.csv",
                       index=False)
+        validate_record("nfl", "oof_distribution", oof_dist)
         oof_dist.to_csv(models_dir / f"nfl_oof_distribution_{date_c}.csv",
                         index=False)
-        fold_table(game_df, fold_list).to_csv(
+        _fold_tbl = fold_table(game_df, fold_list)
+        validate_record("nfl", "fold_table", _fold_tbl)
+        _fold_tbl.to_csv(
             models_dir / f"nfl_fold_table_{date_c}.csv", index=False)
 
         from sports.nfl.feature_registry import (

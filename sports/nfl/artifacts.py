@@ -17,6 +17,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from core.record_validation import validate_record
+
 logger = logging.getLogger(__name__)
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "tests" / "fixtures" \
@@ -130,8 +132,9 @@ def write_moneyline_json(path: Path, slate_df: pd.DataFrame,
     if list(record.keys()) != list(fx["keys"]):
         raise NFLArtifactError(
             f"moneyline_json key order mismatch: {list(record.keys())}")
-    path.write_text(json.dumps(_json_safe(record), indent=1,
-                               allow_nan=False))
+    safe = _json_safe(record)
+    validate_record("nfl", "moneyline_v1", safe)
+    path.write_text(json.dumps(safe, indent=1, allow_nan=False))
     return record
 
 
@@ -190,8 +193,9 @@ def write_calibration_json(path: Path, moneyline_metrics: dict,
     if list(record.keys()) != list(fx["keys"]):
         raise NFLArtifactError(
             f"calibration_json key order mismatch: {list(record.keys())}")
-    path.write_text(json.dumps(_json_safe(record), indent=1,
-                               allow_nan=False))
+    safe = _json_safe(record)
+    validate_record("nfl", "calibration", safe)
+    path.write_text(json.dumps(safe, indent=1, allow_nan=False))
     return record
 
 
@@ -222,8 +226,9 @@ def write_qb_matchup_json(path: Path, qb_df: pd.DataFrame,
     if list(record.keys()) != list(fx["keys"]):
         raise NFLArtifactError(
             f"qb_matchup key order mismatch: {list(record.keys())}")
-    path.write_text(json.dumps(_json_safe(record), indent=1,
-                               allow_nan=False))
+    safe = _json_safe(record)
+    validate_record("nfl", "qb_matchup", safe)
+    path.write_text(json.dumps(safe, indent=1, allow_nan=False))
     return record
 
 
@@ -245,8 +250,9 @@ def write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,
     if list(record.keys()) != list(fx["keys"]):
         raise NFLArtifactError(
             f"feature_json key order mismatch: {list(record.keys())}")
-    path.write_text(json.dumps(_json_safe(record), indent=1,
-                               allow_nan=False))
+    safe = _json_safe(record)
+    validate_record("nfl", "feature_v1", safe)
+    path.write_text(json.dumps(safe, indent=1, allow_nan=False))
     return record
 
 
@@ -306,8 +312,9 @@ def write_model_monitor_json(path: Path, run_date: str, drift: list[dict],
     if list(record.keys()) != list(fx["keys"]):
         raise NFLArtifactError(
             f"model_monitor key order mismatch: {list(record.keys())}")
-    path.write_text(json.dumps(_json_safe(record), indent=1,
-                               allow_nan=False))
+    safe = _json_safe(record)
+    validate_record("nfl", "model_monitor", safe)
+    path.write_text(json.dumps(safe, indent=1, allow_nan=False))
     return record
 
 
@@ -368,8 +375,9 @@ def write_markets_monitor_json(path: Path, run_date: str,
     if list(record.keys()) != list(fx["keys"]):
         raise NFLArtifactError(
             f"markets_monitor key order mismatch: {list(record.keys())}")
-    path.write_text(json.dumps(_json_safe(record), indent=1,
-                               allow_nan=False))
+    safe = _json_safe(record)
+    validate_record("nfl", "run_engine_monitor", safe)
+    path.write_text(json.dumps(safe, indent=1, allow_nan=False))
     return record
 
 
@@ -404,6 +412,7 @@ def write_predictions_history_csv(path: Path, oof: pd.DataFrame,
     if list(out.columns) != list(fx["columns"]):
         raise NFLArtifactError(
             f"predictions_history column mismatch: {list(out.columns)}")
+    validate_record("nfl", "predictions_history", out)
     out.to_csv(path, index=False)
     return out
 
@@ -431,6 +440,7 @@ def write_power_rankings_csv(path: Path, ratings: dict[str, float],
     if list(df.columns) != list(fx["columns"]):
         raise NFLArtifactError(
             f"power_rankings column mismatch: {list(df.columns)}")
+    validate_record("nfl", "power_rankings", df)
     df.to_csv(path, index=False)
     return df
 
@@ -448,6 +458,7 @@ def write_markets_csv(path: Path, meta_path: Path,
         if c not in out.columns:
             out[c] = np.nan
     out = out[cols]
+    validate_record("nfl", "run_engine_markets", out)
     out.to_csv(path, index=False)
     meta = {
         "record": "nfl_run_engine_markets",
@@ -462,6 +473,7 @@ def write_markets_csv(path: Path, meta_path: Path,
     if list(meta.keys()) != list(meta_fx["keys"]):
         raise NFLArtifactError(
             f"markets meta key order mismatch: {list(meta.keys())}")
+    validate_record("nfl", "run_engine_markets.meta", meta)
     meta_path.write_text(json.dumps(meta, indent=1))
     return out
 
@@ -476,5 +488,6 @@ def persist_shap_game(frame: pd.DataFrame, run_date: str, game_key: str,
         raise NFLArtifactError(f"shap_game missing columns: {missing}")
     out = frame[cols]
     out_path = out_dir / f"nfl_shap_game_{run_date}_{game_key}.csv"
+    validate_record("nfl", "shap_game", out)
     out.to_csv(out_path, index=False)
     return out_path

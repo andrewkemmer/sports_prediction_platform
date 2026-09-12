@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from core.record_validation import validate_record
 from sports.mlb.run_engine import (
     RUN_LINE_GRID,
     RUN_LINE_GRID_FULL,
@@ -115,10 +116,12 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
         raise ValueError(
             f"markets frame contains NaNs in {bad} — refusing to persist")
     _check_columns(frame, "run_engine_markets")
+    validate_record("mlb", "run_engine_markets", frame)
     _atomic_write_csv(frame, out_path)
     meta_path = out_path.with_suffix("")
     meta_path = out_path.parent / \
         f"run_engine_markets_{target_date_str}.meta.json"
+    validate_record("mlb", "run_engine_markets.meta", summary)
     _atomic_write_json(summary, meta_path)
     logger.info("Run engine markets: %d rows -> %s (+ meta json)",
                 len(frame), out_path.name)
@@ -137,6 +140,7 @@ def persist_oof(oof: pd.DataFrame, target_date_str: str,
     frame["home_score"] = frame["home_score"].astype(int)
     frame["away_score"] = frame["away_score"].astype(int)
     _check_columns(frame, "run_engine_oof")
+    validate_record("mlb", "run_engine_oof", frame)
     _atomic_write_csv(frame, out_path)
     logger.info("Run engine OOF: %d rows -> %s", len(frame), out_path.name)
     return out_path
@@ -172,6 +176,7 @@ def persist_predictions_history(frame: pd.DataFrame, target_date_str: str,
         raise ValueError(f"predictions_history missing columns: {missing}")
     out = frame[PREDICTIONS_HISTORY_COLUMNS]
     _check_columns(out, "predictions_history")
+    validate_record("mlb", "predictions_history", out)
     _atomic_write_csv(out, out_path)
     logger.info("predictions_history: %d rows -> %s", len(out), out_path.name)
     return out_path
@@ -197,6 +202,7 @@ def persist_todays_games(frame: pd.DataFrame, target_date_str: str,
         raise ValueError(f"todays_games missing columns: {missing}")
     out = frame[TODAYS_GAMES_COLUMNS]
     _check_columns(out, "todays_games")
+    validate_record("mlb", "todays_games", out)
     _atomic_write_csv(out, out_path)
     logger.info("todays_games: %d rows -> %s", len(out), out_path.name)
     return out_path
@@ -218,6 +224,7 @@ def persist_power_rankings(frame: pd.DataFrame, target_date_str: str,
         raise ValueError(f"power_rankings missing columns: {missing}")
     out = frame[POWER_RANKINGS_COLUMNS].sort_values("rank")
     _check_columns(out, "power_rankings")
+    validate_record("mlb", "power_rankings", out)
     _atomic_write_csv(out, out_path)
     logger.info("power_rankings: %d rows -> %s", len(out), out_path.name)
     return out_path
@@ -238,6 +245,7 @@ def persist_calibration(payload: dict, target_date_str: str,
         raise ValueError(f"calibration payload missing keys: {missing}")
     out_path = Path(out_dir or ".") / f"calibration_{target_date_str}.json"
     _check_json_keys(payload, "calibration")
+    validate_record("mlb", "calibration", payload)
     _atomic_write_json(payload, out_path)
     logger.info("calibration -> %s", out_path.name)
     return out_path
@@ -258,6 +266,7 @@ def persist_model_monitor(payload: dict, target_date_str: str,
         raise ValueError(f"model_monitor payload missing keys: {missing}")
     out_path = Path(out_dir or ".") / f"model_monitor_{target_date_str}.json"
     _check_json_keys(payload, "model_monitor")
+    validate_record("mlb", "model_monitor", payload)
     _atomic_write_json(payload, out_path)
     logger.info("model_monitor -> %s", out_path.name)
     return out_path
@@ -276,6 +285,7 @@ def persist_rolling_brier(payload: dict, target_date_str: str,
     if missing:
         raise ValueError(f"rolling_brier payload missing keys: {missing}")
     out_path = Path(out_dir or ".") / f"rolling_brier_{target_date_str}.json"
+    validate_record("mlb", "rolling_brier", payload)
     _atomic_write_json(payload, out_path)
     logger.info("rolling_brier -> %s", out_path.name)
     return out_path
@@ -292,6 +302,7 @@ def persist_features_metadata(payload: dict, target_date_str: str,
         raise ValueError(f"features_metadata payload missing keys: {missing}")
     out_path = Path(out_dir or ".") / \
         f"features_metadata_{target_date_str}.json"
+    validate_record("mlb", "features_metadata", payload)
     _atomic_write_json(payload, out_path)
     logger.info("features_metadata -> %s", out_path.name)
     return out_path
@@ -312,6 +323,7 @@ def persist_run_engine_monitor(payload: dict, target_date_str: str,
                          "'run-engine-monitor/v2'")
     out_path = Path(out_dir or ".") / \
         f"run_engine_monitor_{target_date_str}.json"
+    validate_record("mlb", "run_engine_monitor", payload)
     _atomic_write_json(payload, out_path)
     logger.info("run_engine_monitor -> %s", out_path.name)
     return out_path
@@ -335,6 +347,7 @@ def persist_shap_game(frame: pd.DataFrame, target_date_str: str,
         raise ValueError(f"shap_game missing columns: {missing}")
     out = frame[SHAP_GAME_COLUMNS]
     _check_columns(out, "shap_game")
+    validate_record("mlb", "shap_game", out)
     _atomic_write_csv(out, out_path)
     logger.info("shap_game -> %s", out_path.name)
     return out_path
@@ -361,6 +374,7 @@ def persist_feature_drift(frame: pd.DataFrame, target_date_str: str,
         raise ValueError(f"feature_drift missing columns: {missing}")
     out = frame[FEATURE_DRIFT_COLUMNS]
     _check_columns(out, "feature_drift")
+    validate_record("mlb", "feature_drift", out)
     _atomic_write_csv(out, out_path)
     logger.info("feature_drift -> %s", out_path.name)
     return out_path
@@ -375,6 +389,7 @@ def persist_feature_coverage(frame: pd.DataFrame, target_date_str: str,
         raise ValueError(f"feature_coverage missing columns: {missing}")
     out = frame[FEATURE_COVERAGE_COLUMNS]
     _check_columns(out, "feature_coverage")
+    validate_record("mlb", "feature_coverage", out)
     _atomic_write_csv(out, out_path)
     logger.info("feature_coverage -> %s", out_path.name)
     return out_path

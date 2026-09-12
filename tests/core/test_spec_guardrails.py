@@ -406,6 +406,98 @@ def test_dependency_manifest_pins_versions():
 
 
 # ---------------------------------------------------------------------------
+# record-type validator alignment (B-005, hardened rule 10)
+# ---------------------------------------------------------------------------
+
+def _record_validation_registry() -> set[tuple[str, str]]:
+    """Import the production registry and return its (sport, family) keys."""
+    import importlib
+    mod = importlib.import_module("core.record_validation")
+    return set(mod.REGISTRY.keys())
+
+
+def _registry_call_sites() -> set[tuple[str, str]]:
+    """Every (sport, family) literal used in a production
+    ``validate_record(...)`` call, per the approved AST-alignment scope:
+    the four ``sports/*/artifacts.py`` writer modules plus the nine
+    designated runner-side OOF/fold-table to_csv sites. No generic
+    to_csv scan (call sites outside the scope are not required to be
+    registry-keyed)."""
+    tree_cache: dict[Path, ast.Module] = {}
+    for path in _py_files("sports"):
+        name = path.relative_to(REPO_ROOT).as_posix()
+        if (name.endswith("artifacts.py")
+                or name in RUNNER_VALIDATE_SITES):
+            try:
+                tree_cache[path] = ast.parse(
+                    path.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+    sites: set[tuple[str, str]] = set()
+    for tree in tree_cache.values():
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "validate_record"
+                    and len(node.args) >= 2
+                    and all(isinstance(a, ast.Constant)
+                            for a in node.args[:2])):
+                sites.add((node.args[0].value, node.args[1].value))
+    return sites
+
+
+# The 9 designated runner-side OOF/fold-table write sites (3 per sport).
+RUNNER_VALIDATE_SITES = {
+    "sports/nfl/runner.py", "sports/nhl/runner.py", "sports/nba/runner.py",
+}
+
+
+def test_registry_covers_every_active_writer_call_site():
+    """B-005: every (sport, family) a writer validates has a registry
+    entry — a writer keying an undeclared family fails here."""
+    reg = _record_validation_registry()
+    missing = sorted(_registry_call_sites() - reg)
+    assert not missing, (
+        "validate_record call sites without registry entries: " + str(missing))
+
+
+def test_registry_entries_all_have_active_writers():
+    """B-005: every registry entry has an active writer call site —
+    dead registry entries (writers removed without registry cleanup)
+    fail here. Reserved durable names (model_history,
+    model_version_history) have NO entries by design."""
+    reg = _record_validation_registry()
+    orphaned = sorted(reg - _registry_call_sites())
+    assert not orphaned, (
+        "registry entries with no active writer call site: " + str(orphaned))
+
+
+def test_registry_size_pinned():
+    """B-005: the registry size is pinned at 56 — 14 per sport (13 MLB
+    primaries + markets meta; 10 NNX artifact primaries + markets meta
+    + 3 runner-side OOF/fold stores). Any change to the registry is a
+    reviewed registry change, never silent growth."""
+    import importlib
+    mod = importlib.import_module("core.record_validation")
+    assert len(mod.REGISTRY) == mod.EXPECTED_REGISTRY_SIZE == 56
+
+
+def test_reserved_durable_names_have_no_registry_entries():
+    """B-005: model_history / model_version_history are reserved durable
+    contract names with zero production writers — they must NOT have
+    registry entries (any future writer must add one in the same change,
+    caught by the alignment tests above)."""
+    reg = _record_validation_registry()
+    reserved = {f"{s} {n}" for s in ("mlb", "nfl", "nhl", "nba")
+                for n in ("model_history", "model_version_history")}
+    reserved_keys = {(s, n) for s, n in reg
+                     if n in ("model_history", "model_version_history")}
+    assert not reserved_keys, (
+        "reserved durable names must not have registry entries: "
+        + str(sorted(reserved_keys)))
+
+
+# ---------------------------------------------------------------------------
 # 7. external adapter integration smoke (blocker-linked strict xfails)
 # ---------------------------------------------------------------------------
 

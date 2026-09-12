@@ -269,3 +269,32 @@ class TestStudyDeterminism:
                            val_scope="oof_season", end_of_day=True)
         for f in folds:
             assert (f.val_end - f.val_start) == pd.Timedelta(days=6)
+
+
+# ---------------------------------------------------------------------------
+# B-005: pre-write record validation — zero-byte-on-failure proofs
+# ---------------------------------------------------------------------------
+
+def test_write_predictions_history_rejects_out_of_range_probability(
+        tmp_path):
+    """p columns outside [0, 1] raise before serialization; no CSV."""
+    from core.record_validation import RecordValidationError
+    oof = pd.DataFrame({
+        "game_id": ["g1", "g2"], "gameday": ["2026-09-07"] * 2,
+        "season": [2026] * 2, "home_team": ["A"] * 2, "away_team": ["B"] * 2,
+        "fold_id": [1, 2], "home_win": [1.0, 0.0],
+        "p_ensemble": [1.2, 0.3],  # 1.2 is out of range
+        "home_score": [3.0, 1.0], "away_score": [1.0, 2.0],
+    })
+    with pytest.raises(RecordValidationError, match="outside"):
+        write_predictions_history_csv(tmp_path / "ph.csv", oof, None)
+    assert not (tmp_path / "ph.csv").exists()
+
+
+def test_persist_shap_game_rejects_missing_columns(tmp_path):
+    """A shap frame missing a required column raises pre-write."""
+    from core.record_validation import RecordValidationError
+    frame = pd.DataFrame({"feature": ["f1"], "shap_value": [0.1]})
+    with pytest.raises((RecordValidationError, NFLArtifactError)):
+        persist_shap_game(frame, "20260907", "ARI@KC", out_dir=tmp_path)
+    assert not list(tmp_path.glob("nfl_shap_game_*.csv"))

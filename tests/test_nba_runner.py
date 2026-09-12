@@ -389,3 +389,34 @@ class TestFiveMemberCertified:
         # every member produced OOF predictions (auc present)
         for name, row in ensemble.items():
             assert row["auc"] is not None, f"{name} did not execute"
+
+
+# ---------------------------------------------------------------------------
+# B-005: pre-write record validation — zero-byte-on-failure proofs
+# ---------------------------------------------------------------------------
+
+def test_write_predictions_history_rejects_out_of_range_probability(
+        tmp_path):
+    """p columns outside [0, 1] raise before serialization; no CSV."""
+    from core.record_validation import RecordValidationError
+    from sports.nba.artifacts import write_predictions_history_csv
+    oof = pd.DataFrame({
+        "game_id": ["g1", "g2"], "game_date": ["2027-01-07"] * 2,
+        "season": [2026] * 2, "home_team": ["A"] * 2, "away_team": ["B"] * 2,
+        "fold_id": [1, 2], "home_win": [1.0, 0.0],
+        "p_ensemble": [1.2, 0.3],  # 1.2 is out of range
+        "home_score": [103.0, 99.0], "away_score": [99.0, 101.0],
+    })
+    with pytest.raises(RecordValidationError, match="outside"):
+        write_predictions_history_csv(tmp_path / "ph.csv", oof, None)
+    assert not (tmp_path / "ph.csv").exists()
+
+
+def test_persist_shap_game_rejects_missing_columns(tmp_path):
+    """A shap frame missing a required column raises pre-write."""
+    from core.record_validation import RecordValidationError
+    from sports.nba.artifacts import persist_shap_game
+    frame = pd.DataFrame({"feature": ["f1"], "shap_value": [0.1]})
+    with pytest.raises((RecordValidationError, Exception), match="missing columns"):
+        persist_shap_game(frame, "20270107", "LAL@BOS", out_dir=tmp_path)
+    assert not list(tmp_path.glob("nba_shap_game_*.csv"))

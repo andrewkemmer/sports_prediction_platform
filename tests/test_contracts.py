@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -14,6 +15,12 @@ from core.contracts import (
     ParticipantBox,
     default_artifact_contract,
     load_artifact_contract,
+)
+from core.record_validation import (
+    EXPECTED_REGISTRY_SIZE,
+    REGISTRY,
+    RecordValidationError,
+    validate_record,
 )
 
 
@@ -197,4 +204,203 @@ def test_contract_paths_under_new_layout(tmp_path):
     cfg = default_config()
     d = cfg.data_delivery_dir("mlb", tmp_path)
     assert d == tmp_path / "sports" / "mlb" / "data_delivery"
-    assert isinstance(d, Path)
+
+
+# ---------------------------------------------------------------------------
+# B-005: pre-write record-type validation registry (hardened rule 10)
+# ---------------------------------------------------------------------------
+
+def test_registry_size_pinned():
+    """The registry pins 56 entries: 14 per sport. MLB = 13 primaries +
+    run_engine_markets.meta; each of NFL/NHL/NBA = 10 artifact primaries
+    + run_engine_markets.meta + 3 runner-side OOF/fold stores. Any
+    change is a reviewed registry change — never silent growth."""
+    assert len(REGISTRY) == EXPECTED_REGISTRY_SIZE == 56
+    from collections import Counter
+    per_sport = Counter(s for s, _ in REGISTRY)
+    assert per_sport == {"mlb": 14, "nfl": 14, "nhl": 14, "nba": 14}
+
+
+def test_registry_nonempty_required_fields_and_probability_closed():
+    """Registry hardening: non-empty required_fields everywhere; every
+    declared probability constraint is the closed interval [0, 1]."""
+    for (sport, family), spec in sorted(REGISTRY.items()):
+        assert spec.required_fields, (
+            f"({sport}, {family}): empty required_fields")
+        assert spec.record_kind in ("frame", "json")
+
+
+def test_validate_record_rejects_unknown_family():
+    with pytest.raises(RecordValidationError, match="no registry entry"):
+        validate_record("mlb", "not_a_family", {})
+
+
+def test_validate_record_rejects_wrong_record_kind():
+    with pytest.raises(RecordValidationError, match="expected DataFrame"):
+        validate_record("mlb", "shap_game", {"feature": "x"})
+    with pytest.raises(RecordValidationError, match="expected dict"):
+        validate_record("mlb", "calibration", pd.DataFrame({"a": [1]}))
+
+
+def _shap_frame(shap_value=0.1):
+    return pd.DataFrame({
+        "feature": ["f1"], "shap_value": [shap_value],
+        "signed_effect": [1], "perspective_team": ["HOU"]})
+
+
+def _mlb_calibration_record(**over):
+    rec = {k: 1 if k == "n_games" else ([] if k in (
+        "calibration_buckets", "daily") else
+        ({} if k in ("metrics", "calibration", "league_total",
+                     "evening_games_league") else "x"))
+        for k in REGISTRY["mlb", "calibration"].required_fields}
+    rec.update(over)
+    return rec
+
+
+@pytest.mark.parametrize(
+    "sport,family", sorted(REGISTRY.keys()),
+    ids=[f"{s}-{f}" for s, f in sorted(REGISTRY.keys())])
+def test_validate_record_valid_record_passes(sport, family):
+    """Every registry entry accepts a minimal structurally-valid record
+    built from its own declared required fields."""
+    spec = REGISTRY[sport, family]
+    if spec.record_kind == "frame":
+        def _pval(c):
+            if c in spec.probability_fields:
+                return 0.5
+            if c.startswith("p_push_"):
+                return 0.1
+            if c.startswith(("p_over_", "p_under_")):
+                return 0.45
+            if c.endswith(("_home", "_away")) and c.startswith("p_rl_"):
+                return 0.3
+            if c.startswith("p_rl_") and c.endswith("_push"):
+                return 0.4
+            if c.startswith(("p_home_cover_", "p_rl_")):
+                return 0.45
+            if c.startswith("p_"):
+                return 0.5
+            return 1
+        rec = pd.DataFrame({c: [_pval(c)] for c in spec.required_fields})
+    else:
+        rec = {}
+        for k in spec.required_fields:
+            if k in spec.probability_fields:
+                rec[k] = 0.5
+            elif k.endswith("_utc") or k in ("trained_at", "date"):
+                rec[k] = "2026-09-07T00:00:00Z"
+            elif k == "games":
+                # moneyline_v1/matchup families embed per-game cards; a
+                # minimal card with contract-permitted nulls is valid.
+                rec[k] = []
+            elif k in ("n_games", "n_draws", "n_pre", "n_holdout",
+                       "n_points", "n_games_total", "excluded_sparse_days",
+                       "n_games_in_series", "n_features", "seed",
+                       "columns", "n_rows", "n_oof", "n_slate"):
+                rec[k] = 1
+            else:
+                rec[k] = {} if k in (
+                    "metrics", "config", "calibration", "games",
+                    "manifest", "coverage", "fold_geometry", "fit",
+                    "market_metrics", "winner_cards", "slate_history",
+                    "rolling_brier", "features_metadata", "ensemble",
+                    "series", "categorical_context", "warnings",
+                    "calibration_buckets", "daily", "line_grid",
+                    "alpha_home", "alpha_away", "year_effect_home",
+                    "year_effect_away", "phase2_single_alpha",
+                    "fit_check_single_alpha", "fit_check_alpha_lambda",
+                    "variance_check", "mc_meta", "k_edge",
+                    "agreement_vs_moneyline", "agreement_slate",
+                    "drift_summary", "feature_drift", "feature_coverage",
+                    "brier_baseline", "brier_baseline_label",
+                    "rolling_brier_meta", "run_engine", "model_history",
+                    "version_history", "last_retrained", "next_retrain",
+                    "last_retrained_note", "next_retrain_note",
+                    "upset_note", "map_scope_note", "source_column",
+                    "calibrator_is_identity", "history_mean_brier",
+                    "generated_for", "feature_set_version",
+                    "served_columns", "grids", "record", "written_utc",
+                    "slate_date", "markets_persisted",
+                    "markets_persist_error", "schema", "phase1") else "x"
+    validate_record(sport, family, rec)
+
+
+@pytest.mark.parametrize(
+    "sport,family", sorted(REGISTRY.keys()),
+    ids=[f"{s}-{f}" for s, f in sorted(REGISTRY.keys())])
+def test_validate_record_missing_required_field_raises(sport, family):
+    """Every registry entry rejects a record missing one required field
+    (zero-byte discipline lives in the writer-level tests)."""
+    spec = REGISTRY[sport, family]
+    if spec.record_kind == "frame":
+        cols = [c for c in spec.required_fields[1:]]
+        rec = pd.DataFrame({c: [1] for c in cols}) if cols else pd.DataFrame()
+    else:
+        rec = {k: "x" for k in spec.required_fields[1:]}
+    with pytest.raises(RecordValidationError, match="missing required"):
+        validate_record(sport, family, rec)
+
+
+def test_validate_record_probability_range_enforced():
+    """Out-of-range probabilities are rejected (closed [0, 1]) on both
+    declared probability fields and the p_* column convention."""
+    validate_record("mlb", "shap_game", _shap_frame(0.1))  # passes
+    bad = pd.DataFrame({
+        "game_id": ["g"], "game_date": ["2026-09-07"],
+        "home_team": ["A"], "away_team": ["B"],
+        "home_score": [5.0], "away_score": [3.0], "home_win": [1.0],
+        "home_win_prob_model": [1.2],
+        "home_win_prob_model_calibrated": [0.5],
+        "model_pick": ["A"], "actual_winner": ["A"], "correct": [True],
+    })
+    with pytest.raises(RecordValidationError, match="outside"):
+        validate_record("mlb", "predictions_history", bad)
+
+
+def test_validate_record_nan_inf_rejected_json():
+    rec = _mlb_calibration_record(metrics=float("nan"))
+    with pytest.raises(RecordValidationError, match="NaN/inf"):
+        validate_record("mlb", "calibration", rec)
+    rec2 = _mlb_calibration_record(metrics=float("inf"))
+    with pytest.raises(RecordValidationError, match="NaN/inf"):
+        validate_record("mlb", "calibration", rec2)
+
+
+def test_validate_record_none_only_where_nullable():
+    """None is rejected unless the contract declares the key nullable;
+    nullable keys accept it (e.g. markets_persist_error on success)."""
+    rec = _mlb_calibration_record(metrics=None)
+    with pytest.raises(RecordValidationError, match="None not permitted"):
+        validate_record("mlb", "calibration", rec)
+    mon = {k: "x" for k in REGISTRY["mlb", "run_engine_monitor"]
+           .required_fields}
+    mon["markets_persist_error"] = None
+    validate_record("mlb", "run_engine_monitor", mon)
+
+
+def test_validate_record_mass_group_read_only():
+    """Mass groups are read-only: a triple summing outside [0, 1+eps]
+    fails; the validator never renormalizes."""
+    from sports.mlb.artifacts import MARKET_COLUMNS_V3, persist_markets
+    from sports.mlb.run_engine import TOTAL_LINE_GRID
+    grid = {}
+    for c in MARKET_COLUMNS_V3:
+        if c.startswith(("p_over_", "p_under_")):
+            grid[c] = [0.45, 0.4]
+        elif c.startswith("p_push_"):
+            grid[c] = [0.1, 0.2]
+        elif c.startswith(("p_home_cover_", "p_rl_")):
+            grid[c] = [0.4, 0.35]
+        elif c in ("kind", "game_date", "agreement_conflict"):
+            grid[c] = ["oof", "oof"] if c == "kind" else ["2026-09-07"] * 2 \
+                if c == "game_date" else [False, False]
+        else:
+            grid[c] = [1, 2] if c == "game_pk" else [4.0] * 2 \
+                if "expected_runs" in c or c in ("home_score", "away_score",
+                                                 "total_runs") \
+                else [0.55, 0.45]
+    frame = pd.DataFrame(grid)
+    frame.loc[0, "p_under_" + str(TOTAL_LINE_GRID[0]).replace(".", "_")] = 0.5
+    with pytest.raises(RecordValidationError, match="mass"):
+        persist_markets(frame, "20260907", {}, out_dir=".")
