@@ -13,7 +13,7 @@ from sports.nfl.features import (
     feature_coverage_report,
     team_events,
 )
-from sports.nfl.study_config import FEATURE_COLUMNS, load_nfl_study
+from sports.nfl.study_config import MONEYLINE_FEATURE_COLS, load_nfl_study
 from tests.nfl_fixtures import make_pbp, make_schedule
 
 
@@ -108,13 +108,13 @@ class TestCoverage:
         study = load_nfl_study()
         df = build_game_features(decided, pbp)
         cov = feature_coverage_report(df, study)
-        assert list(cov["feature"]) == list(FEATURE_COLUMNS)
+        assert list(cov["feature"]) == list(MONEYLINE_FEATURE_COLS)
         # Elo-derived and record-derived features must have coverage
         elo_row = cov[cov["feature"] == "elo_diff"].iloc[0]
         assert elo_row["coverage_pct"] == pytest.approx(100.0)
         # PBP-dependent features degrade gracefully on a small fixture
         # but are REPORTED (never silently dropped)
-        assert len(cov) == len(FEATURE_COLUMNS)
+        assert len(cov) == len(MONEYLINE_FEATURE_COLS)
 
     def test_unavailable_columns_explicit(self, decided_and_pbp):
         decided, pbp = decided_and_pbp
@@ -124,8 +124,8 @@ class TestCoverage:
             unavailable_columns,
             unavailable_warnings,
         )
-        unavail = unavailable_columns(df, study.feature_columns)
-        warns = unavailable_warnings(df, study.feature_columns)
+        unavail = unavailable_columns(df, study.moneyline_feature_cols)
+        warns = unavailable_warnings(df, study.moneyline_feature_cols)
         assert len(warns) == len(unavail)
         # travel/altitude come from the committed stadiums table which the
         # fixture venue file doesn't cover here -> they may be unavailable,

@@ -61,10 +61,6 @@ MARKET_CONTRACT_VERSION = "nfl-market-v75"
 #: Prior provenance version (single shared pool before Phase 7.5 Task 2).
 PRIOR_CONTRACT_VERSION = "nfl-prod-v1"
 
-#: Historic single-pool name retained as a re-export of the moneyline
-#: contract (the served feature pool IS the moneyline view).
-FEATURE_COLUMNS: tuple[str, ...] = MONEYLINE_FEATURE_COLS
-
 
 # ---------------------------------------------------------------------------
 # Feature contract (shared semantic interface)
@@ -203,7 +199,7 @@ def build_feature_contract(
     """
     validate_registry()
     specs = []
-    for name in FEATURE_COLUMNS:
+    for name in MONEYLINE_FEATURE_COLS:
         d = _SPEC_DEFS[name]
         specs.append(FeatureSpec(
             name=name,
@@ -232,7 +228,7 @@ def ensure_feature_columns(df: pd.DataFrame,
                            *, warn: bool = True) -> pd.DataFrame:
     """Matrix-width invariant: every declared column exists (missing → NaN,
     loud warning) and column order matches the registry."""
-    cols = list(feature_cols or FEATURE_COLUMNS)
+    cols = list(feature_cols or MONEYLINE_FEATURE_COLS)
     out = df.reindex(columns=cols)
     if warn:
         missing = [c for c in cols if c not in df.columns]
@@ -249,7 +245,7 @@ def unavailable_columns(df: pd.DataFrame,
                         ) -> list[str]:
     """Declared columns with ZERO observations in the frame — routed
     explicitly as unavailable (surfaced in features_metadata warnings)."""
-    cols = list(feature_cols or FEATURE_COLUMNS)
+    cols = list(feature_cols or MONEYLINE_FEATURE_COLS)
     out = []
     for c in cols:
         col = df[c] if c in df.columns else None
@@ -302,7 +298,7 @@ def build_candidate_frame(decided: pd.DataFrame,
     targets beside features for OOF assembly; targets are never model
     inputs (enforced by the training module's matrix routing).
     """
-    cols = tuple(feature_cols or FEATURE_COLUMNS)
+    cols = tuple(feature_cols or MONEYLINE_FEATURE_COLS)
     out = ensure_feature_columns(decided, cols, warn=False)
     keep = ["game_id", "gameday", "season", "week", "home_team",
             "away_team", "home_score", "away_score", "margin", "total",

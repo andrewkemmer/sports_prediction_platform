@@ -128,7 +128,7 @@ def member_matrix(name: str, df: pd.DataFrame, study=None) -> pd.DataFrame:
     """The feature matrix a member consumes (model-family representation)."""
     study = study or load_nba_study()
     if name in LINEAR_MEMBERS:
-        keep = [c for c in list(study.feature_columns) + ["is_home"]
+        keep = [c for c in list(study.moneyline_feature_cols) + ["is_home"]
                 if c in df.columns]
         return df.reindex(columns=keep).astype(float)
     from sports.nba.features import tree_view

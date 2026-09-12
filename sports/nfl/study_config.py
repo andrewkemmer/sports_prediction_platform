@@ -146,11 +146,6 @@ from sports.nfl.feature_registry import (  # noqa: E402
     PRIOR_CONTRACT_VERSION,
 )
 
-#: Historic single-pool name, re-exported from the registry for backward
-#: compatibility with existing consumers (the served pool IS the
-#: moneyline contract).
-FEATURE_COLUMNS: tuple[str, ...] = MONEYLINE_FEATURE_COLS
-
 
 @dataclass(frozen=True)
 class NFLStudy:
@@ -176,7 +171,6 @@ class NFLStudy:
     retention_exempt_families: tuple[str, ...]
     prediction_cutoff_buffer_minutes: int
     availability_enforcement: str
-    feature_columns: tuple[str, ...] = FEATURE_COLUMNS
     moneyline_feature_cols: tuple[str, ...] = MONEYLINE_FEATURE_COLS
     moneyline_contract_version: str = MONEYLINE_CONTRACT_VERSION
     market_feature_cols: tuple[str, ...] = MARKET_FEATURE_COLS
@@ -406,7 +400,6 @@ def load_nfl_study(path: str | Path | None = None) -> NFLStudy:
         retention_exempt_families=exempt,
         prediction_cutoff_buffer_minutes=buffer,
         availability_enforcement=availability_enforcement,
-        feature_columns=FEATURE_COLUMNS,
         moneyline_feature_cols=MONEYLINE_FEATURE_COLS,
         moneyline_contract_version=MONEYLINE_CONTRACT_VERSION,
         market_feature_cols=MARKET_FEATURE_COLS,

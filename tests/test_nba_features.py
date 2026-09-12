@@ -15,7 +15,7 @@ from sports.nba.features import (
     team_stats_ladder,
     _haversine_miles,
 )
-from sports.nba.study_config import FEATURE_COLUMNS, load_nba_study
+from sports.nba.study_config import MONEYLINE_FEATURE_COLS, load_nba_study
 from tests.nba_fixtures import make_schedule
 
 
@@ -96,7 +96,7 @@ class TestBuildFeatures:
     def test_all_served_features_present(self):
         sched = make_schedule(2015, 2)
         out = build_game_features(sched.dropna(subset=["home_score"]))
-        for c in FEATURE_COLUMNS:
+        for c in MONEYLINE_FEATURE_COLS:
             assert c in out.columns, f"missing served feature {c}"
 
     def test_slate_rows_have_no_targets(self):
@@ -106,7 +106,7 @@ class TestBuildFeatures:
         assert "home_win" not in slate.columns
         assert "margin" not in slate.columns
         # every feature column is present (matrix-width invariant upstream)
-        for c in FEATURE_COLUMNS:
+        for c in MONEYLINE_FEATURE_COLS:
             assert c in slate.columns
 
     def test_slate_features_come_from_decided_history_only(self):
@@ -126,7 +126,7 @@ class TestBuildFeatures:
         sched = make_schedule(2015, 2)
         out = build_game_features(sched.dropna(subset=["home_score"]))
         cov = feature_coverage_report(out)
-        assert list(cov["feature"]) == list(FEATURE_COLUMNS)
+        assert list(cov["feature"]) == list(MONEYLINE_FEATURE_COLS)
         assert (cov["coverage_pct"] >= 0).all()
 
 

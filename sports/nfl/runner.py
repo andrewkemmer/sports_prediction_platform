@@ -418,7 +418,7 @@ def run_nfl_production(
         )
         fc_meta = build_feature_contract().to_metadata_json(run_date)
         # explicit unavailable-column markers (missing-data policy)
-        unavail = unavailable_columns(game_df, study.feature_columns)
+        unavail = unavailable_columns(game_df, study.moneyline_feature_cols)
         fc_meta["warnings"] = [
             f"unavailable: {c} (no observations in source data — routed "
             f"as explicitly unavailable per missing-data policy; not "

@@ -171,6 +171,11 @@ def test_no_one_off_phase75_tests():
 
 def test_no_bare_feature_contract_usage_in_production_modules():
     forbidden = {"FEATURE_COLS", "FEATURE_COLUMNS"}
+    #: The ONLY tolerated declaration-site symbol is the legacy ``COLS``
+    #: alias (documented frozen-view bindings in adapters/sports). The
+    #: ``COLUMNS`` alias was RETIRED by Phase 7.5e-B (B-010a) and has no
+    #: exemption anywhere.
+    decl_tolerated = {"FEATURE_COLS"}
     offenders: list[str] = []
     for path in _py_files("core", "sports"):
         try:
@@ -184,28 +189,34 @@ def test_no_bare_feature_contract_usage_in_production_modules():
                     if alias.name in forbidden:
                         offenders.append(
                             f"{path.relative_to(REPO_ROOT)}:import:{alias.name}")
-            # consuming a bare bare name at module scope of a *definition* site
-            # is allowed only in the declaring module (feature_registry /
-            # study_config define the frozen views).
+            # consuming a bare name at module scope of a *definition* site is
+            # tolerated only for the legacy ``FEATURE_COLS`` alias in the
+            # declaring modules (feature_registry / study_config / adapters).
             if isinstance(node, ast.Name) and node.id in forbidden:
                 decl_sites = ("feature_registry.py", "study_config.py",
                               "adapters.py", "sports.py")
-                if path.name not in decl_sites:
+                if (node.id not in decl_tolerated
+                        or path.name not in decl_sites):
                     offenders.append(
                         f"{path.relative_to(REPO_ROOT)}:name:{node.id}")
     # Definition-site usage inside adapters/sports is the documented frozen
-    # view binding (Phase 7.5 contracts). Same-sport provenance re-exports
-    # (a sport's feature_registry importing its own study_config view) are
-    # legitimate; cross-module bare imports are covered by B-008's dedicated
-    # xfail. Here we assert only the intra-sport-except-registry and
-    # declaration-site discipline:
+    # view binding (Phase 7.5 contracts) and is tolerated ONLY for the legacy
+    # ``FEATURE_COLS`` alias. Same-sport provenance re-exports (a sport's
+    # feature_registry importing its own study_config view) are legitimate;
+    # cross-module bare imports are covered by B-008's dedicated xfail. The
+    # retired ``FEATURE_COLUMNS`` alias is enforced with NO exemption at all:
+    # any declaration, import, alias, re-export or bare-name consumption of it
+    # fails here, in whichever production module it appears.
     hard = [
         o for o in offenders
-        if ":import:" in o and "adapters.py" not in o
-        and not (
-            "feature_registry.py" in o
-            # same-sport provenance re-export: nfl registry <- nfl config
-            and _same_sport_import(o)
+        if ":name:FEATURE_COLUMNS" in o
+        or (
+            ":import:" in o and "adapters.py" not in o
+            and not (
+                "feature_registry.py" in o
+                # same-sport provenance re-export: nfl registry <- nfl cfg
+                and _same_sport_import(o)
+            )
         )
     ]
     assert not hard, f"bare contract symbols consumed outside declaring modules: {hard}"
@@ -253,9 +264,12 @@ def test_legacy_contract_symbols_absent_from_production():
         # bare frozen-view symbol: matches FEATURE_COLS but NOT the
         # versioned MONEYLINE_/MARKET_ prefixed contracts
         "FEATURE" + "_COLS",
+        # retired legacy alias (B-010a / Phase 7.5e-B): banned outright in
+        # every production tree, frontend/ included
+        "FEATURE" + "_COLUMNS",
     }
     offenders: list[str] = []
-    for path in _py_files("core", "sports"):
+    for path in _py_files("core", "sports", "frontend"):
         rel = str(path.relative_to(REPO_ROOT))
         for lineno, line in enumerate(
                 path.read_text(encoding="utf-8").splitlines(), start=1):

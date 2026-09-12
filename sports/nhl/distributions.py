@@ -128,6 +128,11 @@ class ScoreRegressor:
         self.away_model = _make_reg("lightgbm", seed)
 
     def _matrix(self, df: pd.DataFrame, study) -> pd.DataFrame:
+        # BASIS (Phase 7.5e-B): ``tree_view`` is moneyline-basis
+        # (study.moneyline_feature_cols). This market path is therefore
+        # MONEYLINE-BASIS BY DECLARATION; its basis is audited and explicitly
+        # rebound, if required, in Phase 7.5e-C together with the market
+        # contract builders. See sports/nhl/features.py::tree_view.
         Xv = tree_view(df, study=study)
         X = Xv.to_numpy(dtype=np.float64)
         with np.errstate(all="ignore"):

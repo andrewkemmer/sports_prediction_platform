@@ -440,21 +440,31 @@ def build_slate_features(schedule: pd.DataFrame) -> pd.DataFrame:
 
 def served_diff_columns(study=None) -> list[str]:
     study = study or _cfg()
-    return list(study.feature_columns)
+    return list(study.moneyline_feature_cols)
 
 
 def linear_view(df: pd.DataFrame, study=None) -> pd.DataFrame:
     """Difference-oriented linear/MLP matrix (+ is_home anchor)."""
     study = study or _cfg()
-    cols = [c for c in list(study.feature_columns) + ["is_home"]
+    cols = [c for c in list(study.moneyline_feature_cols) + ["is_home"]
             if c in df.columns]
     return df.reindex(columns=cols).astype(float)
 
 
 def tree_view(df: pd.DataFrame, study=None) -> pd.DataFrame:
-    """Tree-family matrix: differences + raw home/away side values."""
+    """Tree-family matrix: differences + raw home/away side values.
+
+    Basis is the MONEYLINE contract (``study.moneyline_feature_cols``): the
+    served feature pool IS the moneyline view. The market margin/totals model
+    (``sports/nba/distributions.py::ScoreRegressor``) consumes this same view
+    and is therefore MONEYLINE-BASIS BY DECLARATION for Phase 7.5e-B; its
+    basis is audited and explicitly rebound, if required, in Phase 7.5e-C
+    together with the market contract builders. Do not add a second basis
+    here without that decision.
+    """
     study = study or _cfg()
-    diff_cols = [c for c in study.feature_columns if c in df.columns]
+    diff_cols = [c for c in study.moneyline_feature_cols
+                 if c in df.columns]
     side_cols = [c for c in ("elo_home", "elo_away", "win_pct_home",
                              "win_pct_away", "ewm_net_pts_home",
                              "ewm_net_pts_away", "rest_days_home",
@@ -466,7 +476,7 @@ def feature_coverage_report(df: pd.DataFrame, study=None) -> pd.DataFrame:
     """Coverage + missingness diagnostics per served feature."""
     study = study or _cfg()
     rows = []
-    for f in study.feature_columns:
+    for f in study.moneyline_feature_cols:
         if f not in df.columns:
             rows.append({"feature": f, "n_games": len(df),
                          "coverage_pct": 0.0, "mean": np.nan, "std": np.nan})
