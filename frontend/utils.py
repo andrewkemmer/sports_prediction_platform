@@ -686,7 +686,11 @@ def start_time_et(iso) -> str:
         ts = pd.to_datetime(iso, errors="coerce", utc=True)
         if pd.isna(ts):
             return ""
-        return ts.tz_convert("America/New_York").strftime("%-I:%M %p ET")
+        # Portable 12-hour formatting: the glibc-only ``%-I`` directive is
+        # unsupported on Windows (raises -> the caller returns ''), so
+        # format zero-padded and strip the leading zero explicitly.
+        hour12 = ts.tz_convert("America/New_York").strftime("%I:%M %p ET")
+        return hour12[1:] if hour12.startswith("0") else hour12
     except (TypeError, ValueError):
         return ""
 
