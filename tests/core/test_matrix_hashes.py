@@ -126,10 +126,15 @@ def _nfl():
     seasons = sorted(set(
         list(range(study.oof_first_season, current_season + 1))
         + list(study.warmup_seasons)))
-    schedule = load_schedule(seasons, cache, full_repull=False)
+    # Deterministic, network-free cache-only loaders: the pinned store is
+    # the recorded fixture; the default production transport is never hit.
+    from tests.nfl_fixtures import cache_only_loader
+    schedule = load_schedule(seasons, cache, full_repull=False,
+                             load=cache_only_loader(cache, "schedules"))
     schedule = eligible_games(schedule, study.oof_first_season,
                               min(study.warmup_seasons))
-    pbp = load_pbp(seasons, cache, full_repull=False)
+    pbp = load_pbp(seasons, cache, full_repull=False,
+                   load=cache_only_loader(cache, "pbp"))
     decided = schedule[schedule["home_score"].notna()
                        & schedule["away_score"].notna()].copy()
     pbp_rollup = cache / "pbp_rollup.parquet"

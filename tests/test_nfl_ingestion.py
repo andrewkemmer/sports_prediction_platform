@@ -3,16 +3,25 @@ and loud failure behavior."""
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 import pytest
 
 from sports.nfl.ingestion import (
+    EXTERNAL_SOURCES,
+    SOURCE_PBP,
+    SOURCE_PLAYER_STATS,
+    SOURCE_SCHEDULES,
+    SOURCE_TEAMS,
     NFLIngestionError,
     eligible_games,
+    load_pbp,
+    load_player_stats,
     load_schedule,
     load_team_names,
 )
-from tests.nfl_fixtures import make_schedule, make_player_stats
+from tests.nfl_fixtures import make_pbp, make_player_stats, make_schedule
 
 
 def _fake_loader(frames_by_season: dict[int, pd.DataFrame],
@@ -137,3 +146,242 @@ class TestPlayerStatsAndTeams:
 def load_player_stats_cache(seasons, cache_dir, *, load):
     from sports.nfl.ingestion import load_player_stats
     return load_player_stats(seasons, cache_dir, load=load)
+
+
+# ---------------------------------------------------------------------------
+# B-007 external-adapter integration smoke (nfl:nflreadpy.*)
+#
+# Exercises the REAL DEFAULT adapters (`_default_load_*`, no injected
+# load=) with the transport patched to a deterministic fake: production
+# call shape, normalization, determinism, loud failure modes, and the
+# no-artifact-after-failure contract.
+# ---------------------------------------------------------------------------
+
+
+class TestNflverseAdapterIntegrationSmoke:
+    def test_registry_declares_every_source_and_default_adapter(self):
+        assert EXTERNAL_SOURCES == {
+            SOURCE_SCHEDULES: "_default_load_schedules",
+            SOURCE_PBP: "_default_load_pbp",
+            SOURCE_PLAYER_STATS: "_default_load_player_stats",
+            SOURCE_TEAMS: "_default_load_teams",
+        }
+
+    # -- schedules ---------------------------------------------------------- #
+
+    def test_schedules_default_adapter_end_to_end(self, tmp_path, monkeypatch):
+        seen: list = []
+        fixture = make_schedule(2020, 1)
+
+        def fake(seasons):
+            seen.append(seasons)
+            return fixture
+
+        monkeypatch.setattr("nflreadpy.load_schedules", fake)
+        out = load_schedule([2020], tmp_path, full_repull=True)
+        assert seen == [[2020]]  # production call shape: load_schedules([season])
+        for col in ("game_id", "gameday", "home_team", "away_team",
+                    "home_score", "away_score"):
+            assert col in out.columns
+        assert out["game_id"].is_unique
+        assert len(out) == len(fixture)
+        assert (tmp_path / "schedules_2020.parquet").exists()
+
+        a = load_schedule([2020], tmp_path / "a", full_repull=True,
+                          load=lambda s: fake(s))
+        b = load_schedule([2020], tmp_path / "b", full_repull=True,
+                          load=lambda s: fake(s))
+        pd.testing.assert_frame_equal(a, b)
+
+    def test_schedules_transport_failure_is_typed(self, tmp_path, monkeypatch):
+        def boom(seasons):
+            raise ConnectionError("nflverse unreachable")
+
+        monkeypatch.setattr("nflreadpy.load_schedules", boom)
+        with pytest.raises(NFLIngestionError) as ei:
+            load_schedule([2020], tmp_path, full_repull=True)
+        assert ei.value.source == SOURCE_SCHEDULES
+        assert ei.value.params["season"] == 2020
+        assert isinstance(ei.value.cause, ConnectionError)
+        assert not (tmp_path / "schedules_2020.parquet").exists()
+
+    def test_schedules_empty_past_season_is_loud(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("nflreadpy.load_schedules",
+                            lambda seasons: pd.DataFrame())
+        with pytest.raises(NFLIngestionError, match="past season 2019"):
+            load_schedule([2019, 2020], tmp_path, full_repull=True)
+        assert not (tmp_path / "schedules_2019.parquet").exists()
+
+    def test_schedules_schema_drift_is_loud(self, tmp_path, monkeypatch):
+        drifted = make_schedule(2020, 1).drop(columns=["game_id"])
+        monkeypatch.setattr("nflreadpy.load_schedules",
+                            lambda seasons: drifted)
+        with pytest.raises(NFLIngestionError, match="REQUIRED") as ei:
+            load_schedule([2020], tmp_path, full_repull=True)
+        assert ei.value.params["missing_required_columns"] == ["game_id"]
+        assert not (tmp_path / "schedules_2020.parquet").exists()
+
+    # -- pbp ---------------------------------------------------------------- #
+
+    def test_pbp_default_adapter_end_to_end_and_deterministic(
+            self, tmp_path, monkeypatch):
+        seen: list = []
+        fixture = make_pbp(make_schedule(2020, 1))
+
+        def fake(season):
+            seen.append(season)
+            return fixture
+
+        monkeypatch.setattr("nflreadpy.load_pbp", fake)
+        out = load_pbp([2020], tmp_path, full_repull=True)
+        assert seen == [2020]  # production call shape: load_pbp(season)
+        assert out is not None
+        for col in ("game_id", "posteam", "defteam", "epa"):
+            assert col in out.columns
+        assert out["game_id"].notna().all()
+        assert pd.api.types.is_numeric_dtype(out["yards_gained"])
+        assert (tmp_path / "pbp_2020.parquet").exists()
+
+        a = load_pbp([2020], tmp_path / "a", full_repull=True,
+                     load=lambda s: fixture)
+        b = load_pbp([2020], tmp_path / "b", full_repull=True,
+                     load=lambda s: fixture)
+        pd.testing.assert_frame_equal(a, b)
+
+    def test_pbp_transport_failure_is_typed(self, tmp_path, monkeypatch):
+        def boom(season):
+            raise TimeoutError("nflverse pbp timeout")
+
+        monkeypatch.setattr("nflreadpy.load_pbp", boom)
+        with pytest.raises(NFLIngestionError) as ei:
+            load_pbp([2020], tmp_path, full_repull=True)
+        assert ei.value.source == SOURCE_PBP
+        assert isinstance(ei.value.cause, TimeoutError)
+        assert not (tmp_path / "pbp_2020.parquet").exists()
+
+    def test_pbp_empty_past_season_is_loud(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("nflreadpy.load_pbp",
+                            lambda season: pd.DataFrame())
+        with pytest.raises(NFLIngestionError, match="past season 2019"):
+            load_pbp([2019, 2020], tmp_path, full_repull=True)
+        assert not (tmp_path / "pbp_2019.parquet").exists()
+
+    def test_pbp_schema_drift_is_loud(self, tmp_path, monkeypatch):
+        drifted = make_pbp(make_schedule(2020, 1)).drop(columns=["posteam"])
+        monkeypatch.setattr("nflreadpy.load_pbp", lambda season: drifted)
+        with pytest.raises(NFLIngestionError, match="REQUIRED"):
+            load_pbp([2020], tmp_path, full_repull=True)
+        assert not (tmp_path / "pbp_2020.parquet").exists()
+
+    # -- player stats ------------------------------------------------------- #
+
+    def test_player_stats_default_adapter_end_to_end(
+            self, tmp_path, monkeypatch):
+        seen: list = []
+        fixture = make_player_stats(2020)
+
+        def fake(seasons):
+            seen.append(seasons)
+            return fixture
+
+        monkeypatch.setattr("nflreadpy.load_player_stats", fake)
+        out = load_player_stats([2020], tmp_path, full_repull=True)
+        assert seen == [[2020]]  # production call shape: load_player_stats([season])
+        frame = out[2020]
+        for col in ("player_id", "player_name", "team", "position"):
+            assert col in frame.columns
+        assert set(frame["position"].unique()) == {"QB"}
+        assert (tmp_path / "player_stats_2020.parquet").exists()
+
+        a = load_player_stats([2020], tmp_path / "a", full_repull=True,
+                              load=lambda s: fixture)
+        b = load_player_stats([2020], tmp_path / "b", full_repull=True,
+                              load=lambda s: fixture)
+        pd.testing.assert_frame_equal(a[2020], b[2020])
+
+    def test_player_stats_transport_and_empty_and_drift(
+            self, tmp_path, monkeypatch):
+        def boom(seasons):
+            raise ConnectionError("stats unreachable")
+
+        monkeypatch.setattr("nflreadpy.load_player_stats", boom)
+        with pytest.raises(NFLIngestionError) as ei:
+            load_player_stats([2020], tmp_path, full_repull=True)
+        assert ei.value.source == SOURCE_PLAYER_STATS
+        assert not (tmp_path / "player_stats_2020.parquet").exists()
+
+        monkeypatch.setattr("nflreadpy.load_player_stats",
+                            lambda seasons: pd.DataFrame())
+        with pytest.raises(NFLIngestionError, match="past season 2019"):
+            load_player_stats([2019, 2020], tmp_path / "e", full_repull=True)
+        assert not (tmp_path / "e" / "player_stats_2019.parquet").exists()
+
+        drifted = make_player_stats(2020).drop(columns=["player_id"])
+        monkeypatch.setattr("nflreadpy.load_player_stats",
+                            lambda seasons: drifted)
+        with pytest.raises(NFLIngestionError, match="REQUIRED"):
+            load_player_stats([2020], tmp_path / "d", full_repull=True)
+        assert not (tmp_path / "d" / "player_stats_2020.parquet").exists()
+
+    # -- teams -------------------------------------------------------------- #
+
+    def test_team_names_default_adapter_end_to_end(
+            self, tmp_path, monkeypatch):
+        calls = {"n": 0}
+        teams = pd.DataFrame({
+            "team_abbr": ["ARI", "BUF"],
+            "team_name": ["Arizona Cardinals", "Buffalo Bills"],
+        })
+
+        def fake():
+            calls["n"] += 1
+            return teams
+
+        monkeypatch.setattr("nflreadpy.load_teams", fake)
+        out = load_team_names(tmp_path)
+        assert calls["n"] == 1  # production call shape: load_teams()
+        assert out == {"ARI": "Arizona Cardinals", "BUF": "Buffalo Bills"}
+        assert (tmp_path / "teams.parquet").exists()
+        # cache hit: the transport is not called again
+        assert load_team_names(tmp_path) == out
+        assert calls["n"] == 1
+
+    def test_ad3_corrupt_cache_is_repulled(self, tmp_path, caplog):
+        """AD-3 (nfl:cache-unreadable): an unreadable per-season cache is
+        logged with its declared token and the season is transparently
+        re-pulled, leaving a valid cache behind."""
+        frames = {2019: make_schedule(2019, 1), 2020: make_schedule(2020, 1)}
+        load = _fake_loader(frames)
+        load_schedule([2019, 2020], tmp_path, full_repull=True, load=load)
+        (tmp_path / "schedules_2019.parquet").write_bytes(b"not parquet")
+        with caplog.at_level(logging.WARNING, logger="sports.nfl.ingestion"):
+            df = load_schedule([2019, 2020], tmp_path, full_repull=False,
+                               load=load)
+        assert any("nfl:cache-unreadable" in r.getMessage()
+                   for r in caplog.records)
+        assert not df.empty and df["game_id"].is_unique
+        repaired = pd.read_parquet(tmp_path / "schedules_2019.parquet")
+        assert repaired["game_id"].is_unique
+        assert len(repaired) == len(frames[2019])
+
+    def test_team_names_failure_modes_are_loud(self, tmp_path, monkeypatch):
+        def boom():
+            raise ConnectionError("teams unreachable")
+
+        monkeypatch.setattr("nflreadpy.load_teams", boom)
+        with pytest.raises(NFLIngestionError) as ei:
+            load_team_names(tmp_path)
+        assert ei.value.source == SOURCE_TEAMS
+        assert not (tmp_path / "teams.parquet").exists()
+
+        monkeypatch.setattr("nflreadpy.load_teams", lambda: pd.DataFrame())
+        with pytest.raises(NFLIngestionError, match="EMPTY") as ei:
+            load_team_names(tmp_path)
+        assert ei.value.source == SOURCE_TEAMS
+        assert not (tmp_path / "teams.parquet").exists()
+
+        drifted = pd.DataFrame({"team_abbr": ["ARI"]})  # no team_name
+        monkeypatch.setattr("nflreadpy.load_teams", lambda: drifted)
+        with pytest.raises(NFLIngestionError, match="REQUIRED"):
+            load_team_names(tmp_path)
+        assert not (tmp_path / "teams.parquet").exists()

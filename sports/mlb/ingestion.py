@@ -52,7 +52,44 @@ _REGULAR_SEASON_CORE_MONTHS = {4, 5, 6, 7, 8, 9}
 
 
 class MLBIngestionError(RuntimeError):
-    """Raised when Statcast ingestion fails or would silently degrade."""
+    """Raised when Statcast ingestion fails or would silently degrade.
+
+    Carries typed context fields: ``source``, ``params``, and ``cause``.
+    """
+
+    def __init__(self, message: str, *, source: str = "mlb:pybaseball.statcast",
+                 params: dict | None = None, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.source = source
+        self.params = params or {}
+        self.cause = cause
+
+
+SOURCE_STATCAST = "mlb:pybaseball.statcast"
+
+#: Declared external source registry: canonical source id -> the default
+#: adapter function that owns the real transport. Enforced by the B-007
+#: integration-smoke guardrail (tests/core/test_spec_guardrails.py).
+EXTERNAL_SOURCES: dict[str, str] = {SOURCE_STATCAST: "_default_fetch"}
+
+#: Approved non-fatal degradations — every entry is an explicitly
+#: reviewed exception to the no-silent-fallback guardrail. Any new
+#: warn-and-continue path must add a key here first (guardrail-pinned:
+#: every declared key must appear at a logger.* telemetry site).
+APPROVED_DEGRADATIONS: dict[str, str] = {
+    "mlb:offseason-or-future-empty-chunk": (
+        "a chunk outside the core regular-season months or in the future "
+        "may legitimately be empty (no completed games can exist there); "
+        "core-season past-dated empties still abort loudly"),
+    "mlb:cache-unreadable": (
+        "a corrupt cache is re-pulled from the source"),
+}
+
+REQUIRED_STATCAST_COLS: tuple[str, ...] = (
+    "game_date", "game_pk", "game_type", "home_team", "away_team",
+    "at_bat_number", "pitch_number", "pitcher", "batter",
+    "home_score", "away_score",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +107,8 @@ def cache_bounds(path: Path) -> tuple[date | None, date | None]:
         hi = pd.Timestamp(gd.max()).date() if pd.notna(gd.max()) else None
         return lo, hi
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not read cache date bounds from %s: %s", path, exc)
+        logger.warning("Could not read cache date bounds from %s: %s [%s]",
+                       path, exc, "mlb:cache-unreadable")
         return None, None
 
 
@@ -107,7 +145,15 @@ def _default_fetch(start: date, end: date) -> pd.DataFrame:
     """The real Statcast fetch (pybaseball). Imported lazily so tests can
     inject fetchers without the dependency installed."""
     from pybaseball import statcast
-    df = statcast(str(start), str(end))
+    try:
+        df = statcast(str(start), str(end))
+    except Exception as exc:
+        raise MLBIngestionError(
+            f"Statcast transport failure for {start}..{end}: {exc}",
+            source=SOURCE_STATCAST,
+            params={"start_date": str(start), "end_date": str(end)},
+            cause=exc,
+        ) from exc
     return df if df is not None else pd.DataFrame()
 
 
@@ -122,7 +168,7 @@ def _is_past_dated_core_season_chunk(chunk_start: date, chunk_end: date,
 
 
 def _chunked_statcast(start: date, end: date, chunk_days: int,
-                      pause_sec: float, fetch=_default_fetch,
+                      pause_sec: float, fetch=None,
                       today: date | None = None) -> list[pd.DataFrame]:
     """Pull Statcast in rate-limit-friendly chunks with retry/backoff.
 
@@ -131,6 +177,7 @@ def _chunked_statcast(start: date, end: date, chunk_days: int,
     to feature building with missing games. Future-dated and offseason
     empties are allowed (no games can exist there).
     """
+    fetch = fetch or _default_fetch
     today = today or date.today()
     chunks: list[pd.DataFrame] = []
     cursor = start
@@ -169,12 +216,15 @@ def _chunked_statcast(start: date, end: date, chunk_days: int,
                     f"after {CHUNK_RETRIES} attempts in core regular-season "
                     f"months. Games in this window would silently drop from "
                     f"the decided frame. Refusing to proceed. Re-run after "
-                    f"the transient failure clears (or set MLB_FULL_REPULL=1)."
+                    f"the transient failure clears (or set MLB_FULL_REPULL=1).",
+                    source=SOURCE_STATCAST,
+                    params={"chunk_start": str(cursor), "chunk_end": str(chunk_end)},
+                    cause=last_exc,
                 )
             logger.warning(
                 "Statcast chunk %s -> %s empty (%s) — outside core season or "
-                "future-dated; no completed games expected", cursor, chunk_end,
-                reason)
+                "future-dated; no completed games expected [%s]", cursor,
+                chunk_end, reason, "mlb:offseason-or-future-empty-chunk")
         cursor = chunk_end + timedelta(days=1)
         if cursor <= end:
             time.sleep(pause_sec)
@@ -188,8 +238,32 @@ def _chunked_statcast(start: date, end: date, chunk_days: int,
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Apply aliases, drop unused columns, filter game types, and ensure all
-    catalog columns exist (missing -> NaN)."""
+    catalog columns exist (missing -> NaN). Required schema columns must be present."""
+    if df.empty:
+        for col in STATCAST_COLS:
+            if col not in df.columns:
+                df[col] = np.nan
+        df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
+        return df
+
     n_before = len(df)
+    rename_map = {}
+    for col in df.columns:
+        canonical = COLUMN_ALIASES.get(col)
+        if canonical and canonical != col:
+            rename_map[col] = canonical
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    # Required column enforcement
+    missing_req = [c for c in REQUIRED_STATCAST_COLS if c not in df.columns]
+    if missing_req:
+        raise MLBIngestionError(
+            f"Statcast payload missing required catalog column(s): {missing_req}",
+            source=SOURCE_STATCAST,
+            params={"missing_columns": missing_req},
+        )
+
     if "game_type" in df.columns:
         df = df[df["game_type"].astype(str).str.strip().isin(KEEP_GAME_TYPES)]
         dropped = n_before - len(df)
@@ -198,13 +272,6 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
                         dropped)
     else:
         logger.warning("game_type column missing — cannot filter spring training")
-    rename_map = {}
-    for col in df.columns:
-        canonical = COLUMN_ALIASES.get(col)
-        if canonical and canonical != col:
-            rename_map[col] = canonical
-    if rename_map:
-        df = df.rename(columns=rename_map)
     for col in UNUSED_COLS:
         if col in df.columns:
             df = df.drop(columns=[col])
@@ -246,7 +313,7 @@ def pull_statcast(start_date: str | date, end_date: str | date,
                   out_path: str | Path = "pitches.parquet",
                   chunk_days: int = 7, pause_sec: float = 0.0,
                   *, full_repull: bool, resume: bool = True,
-                  fetch=_default_fetch, today: date | None = None) -> Path:
+                  fetch=None, today: date | None = None) -> Path:
     """Pull Statcast data and save to Parquet.
 
     Args:
@@ -267,6 +334,7 @@ def pull_statcast(start_date: str | date, end_date: str | date,
     Raises:
         MLBIngestionError: when the full pull returns no data at all.
     """
+    fetch = fetch or _default_fetch
     out = Path(out_path)
     start = start_date if isinstance(start_date, date) \
         else date.fromisoformat(str(start_date))
@@ -330,7 +398,11 @@ def pull_statcast(start_date: str | date, end_date: str | date,
                 chunk_days)
     chunks = _chunked_statcast(start, end, chunk_days, pause_sec, fetch, today)
     if not chunks:
-        raise MLBIngestionError(f"No Statcast data for {start} to {end}")
+        raise MLBIngestionError(
+            f"No Statcast data for {start} to {end}",
+            source=SOURCE_STATCAST,
+            params={"start_date": str(start), "end_date": str(end)},
+        )
     raw = pd.concat(chunks, ignore_index=True)
     before = len(raw)
     raw = raw.drop_duplicates(

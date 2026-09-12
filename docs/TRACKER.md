@@ -115,11 +115,73 @@ suggested fix, assigned phase. Strict xfails in
 - **WS1 addendum (pre-commit review):** `pyproject.toml` dependency sections documented as advisory convenience floors (header note: authoritative manifest is `requirements-dev.txt`; CI installs only from it; sections are non-operative for governance). Pin test generalized from a hard-coded package list to a structural `==` check over all `requirements*.txt`. Clean-venv (Python 3.10.12) resolution check performed: all 14 pins downloadable from PyPI on a bare interpreter (wheel audit, no production sinks touched); full wheel materialization truncated only by sandbox disk space, not by any pin resolution failure.
 - **WS1 process deviation (recorded post-hoc):** commit `4c7a01c` was made without a formally presented and approved validation report preceding it (the executing agent treated the earlier conditional WS1 approval as sufficient). The substantive WS1 content — exact `==` pins for all 14 dependencies, generalized `requirements*.txt` scan, pyproject floor≤pin guard, advisory-floor documentation, clean-venv (3.10.12) installability proof — was verified by battery before the commit and re-verified post-hoc. Future workstreams commit only after their report is explicitly approved.
 
-### B-007 — external-source adapter (statcast fetch path) lacks recorded integration smoke
+### B-007 — external-source adapters lacked recorded integration smokes (RESOLVED in Phase 7.5d, Workstream 5)
 - **Source:** Task 1 audit 8 — `sports/mlb/ingestion.py:107-109` lazily imports the statcast fetcher; no recorded/sandbox smoke exercises the fetch path end to end.
 - **Defect class:** hardened rule 7.
 - **Suggested fix:** add a sandboxed integration smoke (recorded response or sandbox endpoint) proving the fetch path executes; never touching production sinks.
-- **Enforced by:** `tests/core/test_spec_guardrails.py::test_external_adapters_have_recorded_integration_smoke` (strict xfail, B-007).
+- **Resolution (Phase 7.5d, Workstream 5) — 9 declared source paths across the four sports:**
+  - **Registry:** each `sports/<sport>/ingestion.py` declares `EXTERNAL_SOURCES` (canonical source id → the `_default_*` function that owns the real transport): MLB 1 (`pybaseball.statcast`); NFL 4 (`nflreadpy.load_schedules|load_pbp|load_player_stats|load_teams`); NHL 2 (`api-web.nhle.com/schedule|boxscore`); NBA 2 (`stats.nba.com/scheduleleaguev2|boxscoretraditionalv3`).
+  - **Injectable boundaries:** all definition-bound transport defaults were refactored to `fetch=None` / `load=None` seams resolved at call time (`<name> or _default_*`), and injectable `fetch=` parameters were ADDED to the previously seam-less per-game panel adapters (`sports/nhl/ingestion.py::pull_goalie_boxscores`, `sports/nba/ingestion.py::pull_player_boxscores`).
+  - **Typed loud failure:** every `*IngestionError` carries `source`, `params`, `cause`. Transport failure, empty response, and schema drift raise instead of degrading silently. Required (identity/date/score) source columns fail loudly; optional catalog columns stay explicitly NaN-filled. Removed silent fallbacks: NFL `load_team_names` `{}`; NFL `load_pbp`/`load_player_stats` transport-swallow; NHL/NBA boxscore swallow-to-None. Remaining non-fatal cases are declared in `APPROVED_DEGRADATIONS` (newest-season-not-published, latest-season cache refresh, cache-unreadable, NHL genuine gap/tail refresh, NBA current-season-not-posted, NBA boxscore-missing-schedule-date PIT skip) — typed + logged.
+  - **Smoke coverage:** the six `tests/core/test_spec_guardrails.py` checks below plus end-to-end smokes inside the four manifest-listed ingestion modules (`TestStatcastAdapter..., TestNflverse..., TestNhlApi..., TestNbaStats...`) that patch the REAL transport (string-target `monkeypatch.setattr`) and assert production call shape, normalized schema/identity/type/values, twice-run determinism, transport/empty/malformed/schema-drift failures, and zero artifact after failure.
+  - **Network is impossible in the suite:** `tests/conftest.py` installs an autouse socket block (`getaddrinfo`/`connect`/`connect_ex`); no test module imports a transport, and production transport imports are confined to `_default_*` functions.
+  - **D2 approval crosswalk (AD-1…AD-7), bidirectional guardrail:** every non-fatal degradation is BOTH declared in the sport's `APPROVED_DEGRADATIONS` AND token-logged at a `logger.*` telemetry site, enforced by `tests/core/test_spec_guardrails.py::test_approved_degradations_are_declared_and_logged_per_sport` (declared-but-never-logged and logged-but-undeclared are both defects). Classes: **AD-1** newest/current season not yet published (NFL schedules/pbp/player_stats, NBA schedule); **AD-2** latest-season incremental refresh failed → cached copy authoritative (NFL schedules); **AD-3** corrupt cache re-pulled (MLB/NFL/NHL/NBA); **AD-4** NHL incremental tail refresh empty → cache kept byte-identical; **AD-5** NHL bracketed run of ≥ GENUINE_GAP_WINDOWS empty windows = genuine season break; **AD-6** NBA boxscore with no schedule date → row skipped (PIT rule: never guess a date); **AD-7** MLB offseason/future-dated empty chunk (core-season past-dated empties still ABORT; a zero-data run still raises, so the allowance can never fabricate a run).
+  - **Pre-implementation proposal AD id → implemented AD id (explicit mapping; no AD identifiers are encoded in production code, the keys are semantic strings):**
+
+    | proposal AD | semantic class | implemented identifier(s) | change |
+    |---|---|---|---|
+    | AD-1 | newest / current season not yet published | **AD-1** `nfl:latest-season-not-published`, `nba:current-season-not-posted` | unchanged |
+    | AD-2 | latest-season incremental refresh failed → cached copy authoritative | **AD-2** `nfl:latest-season-refresh-failed` | unchanged |
+    | AD-3 | corrupt cache re-pulled | **AD-3** `mlb:cache-unreadable`, `nfl:cache-unreadable`, `nhl:cache-unreadable`, `nba:cache-unreadable` | unchanged |
+    | AD-4 | NHL empty-window allowance | **AD-4** `nhl:tail-refresh-empty` + **AD-5** `nhl:genuine-gap` | one class SPLIT into two identifiers |
+    | AD-5 | NBA boxscore with no schedule date → row skipped (PIT) | **AD-6** `nba:boxscore-missing-schedule-date` | renumbered |
+    | AD-6 | MLB offseason / future-dated empty chunk | **AD-7** `mlb:offseason-or-future-empty-chunk` | renumbered |
+
+    **Six semantic classes reconciled against seven implementation identifiers:** `6 classes → 7 identifiers`, accounted for entirely by the single AD-4 split (1 class → 2 identifiers). `7 = 6 − 1 + 2`. Per-sport identifier counts: MLB 2, NFL 3, NHL 3, NBA 3 = 11 declared keys covering the 7 identifiers (AD-1 and AD-3 are multi-sport).
+  - **Exact old-token → new-token mapping.** Pre-WS5 (`daa5ab8`) produced NO tokens — each degradation was an untokenised `logger.warning` whose text was the only signal. The mapping is therefore from the exact pre-existing message signature to the token now appended to it. Every old site is accounted for by exactly one of the three dispositions below.
+
+    | pre-WS5 site (`daa5ab8`) | old message signature | new token | condition |
+    |---|---|---|---|
+    | `mlb/ingestion.py:73` | `Could not read cache date bounds from %s: %s` | `mlb:cache-unreadable` | unchanged |
+    | `mlb/ingestion.py:174-175` | `Statcast chunk %s -> %s empty (%s) — outside core season or future-dated; no completed games expected` | `mlb:offseason-or-future-empty-chunk` | unchanged |
+    | `nfl/ingestion.py:131` | `cache %s unreadable (%s) — re-pulling` | `nfl:cache-unreadable` | unchanged |
+    | `nfl/ingestion.py:185-186` | `schedule re-pull for latest season %d failed (%s) — using cached copy` | `nfl:latest-season-refresh-failed` | unchanged |
+    | `nfl/ingestion.py:194` | `no schedule rows for latest season %d yet` | `nfl:latest-season-not-published` | unchanged |
+    | `nfl/ingestion.py:229` | `pbp unavailable for %d: %s` | `nfl:latest-season-not-published` | NARROWED to the newest season (past seasons now raise) |
+    | `nfl/ingestion.py:232` | `pbp empty for season %d — skipping` | `nfl:latest-season-not-published` | NARROWED to the newest season |
+    | `nfl/ingestion.py:258` | `player stats pull failed for %d: %s` | `nfl:latest-season-not-published` | NARROWED to the newest season |
+    | `nhl/ingestion.py:179` | `Could not read cache bounds from %s: %s` | `nhl:cache-unreadable` | unchanged |
+    | `nhl/ingestion.py:265-267` | `Tail refresh returned no schedule rows for %s -> %s — keeping cache (no games posted yet)` | `nhl:tail-refresh-empty` | unchanged |
+    | `nhl/ingestion.py:363-366` | `NHL schedule windows ... classified as a genuine season break (offseason / pause); no games expected` | `nhl:genuine-gap` | unchanged |
+    | `nhl/ingestion.py:373-375` | `NHL schedule window %s -> %s empty (%s) — genuine gap (offseason / delayed season / future dates); no games expected` | `nhl:genuine-gap` | unchanged |
+    | `nba/ingestion.py:280` | `Could not read cache bounds from %s: %s` | `nba:cache-unreadable` | unchanged |
+    | `nba/ingestion.py:295` | `Could not read cached seasons from %s: %s` | `nba:cache-unreadable` | unchanged |
+    | `nba/ingestion.py:401-403` | `No NBA schedule data yet for current season(s) %s (schedule not posted) — writing an empty cache` | `nba:current-season-not-posted` | unchanged |
+    | `nba/ingestion.py:445-446` | `Season %s returned no games (current season — schedule may not be posted yet)` | `nba:current-season-not-posted` | unchanged |
+    | `nba/ingestion.py:534-535` | `boxscore %s has no schedule date — row skipped (the panel's strictly-prior logic requires real dates)` | `nba:boxscore-missing-schedule-date` | unchanged |
+
+    **Disposition 2 — CONVERTED TO LOUD RAISES (D2 mandate; a narrowing, not an AD).** These pre-WS5 sites are deliberately NOT in `APPROVED_DEGRADATIONS`; their behaviour is now a typed `*IngestionError` with `source`/`params`/`cause`:
+
+    | pre-WS5 site (`daa5ab8`) | old behaviour | new behaviour |
+    |---|---|---|
+    | `nfl/ingestion.py:283` `teams pull failed: %s` (+ empty → `{}`) | silent `{}` display names | `NFLIngestionError(SOURCE_TEAMS)` |
+    | `nhl/ingestion.py:125` `boxscore %s unavailable: %s` (+ `return None`) | per-game swallow → TBD panel row | `NHLIngestionError(SOURCE_BOXSCORE)` |
+    | `nba/ingestion.py:195` `boxscore %s unavailable: %s` (+ `return None`) | per-game swallow → TBD panel row | `NBAIngestionError(SOURCE_BOXSCORE)` |
+    | `nba/ingestion.py:200` `boxscore %s malformed: %s` (+ `return None`) | schema drift swallowed | `NBAIngestionError` (schema drift) |
+    | `nfl/ingestion.py:107` `%s missing source columns (filled NaN): %s` | any missing column NaN-filled | required identity/date/score columns RAISE; optional columns still NaN-filled |
+
+    **Disposition 3 — UNCHANGED AND NOT AN AD (diagnostics, no tolerated data).** `game_type column missing — cannot filter spring training/preseason` (MLB `:200`, NHL `:150`, NBA `:251`) is unchanged text, and for all four sports `game_type` is now in the REQUIRED column set, so on a non-empty payload this branch is unreachable — the required-column raise fires first. It cannot admit unfiltered data any more; it is a narrowing, not a widening.
+
+    **Confirmations required by review:**
+    1. **No approved degradation was ADDED.** The seven identifiers map 1:1 onto the six pre-existing degraded behaviours listed in the proposal allowlist; every one traces to a pre-WS5 `daa5ab8` site in the table above. Zero new tolerated behaviours.
+    2. **No approved degradation was REMOVED.** All six classes remain allowed and all seven identifiers are declared + token-logged; `test_approved_degradations_are_declared_and_logged_per_sport` fails if any declared identifier loses its telemetry site.
+    3. **No approved degradation was SILENTLY WIDENED.** No condition grew: the two NHL empty-window sites already existed as separate sites (so the AD-4 split is a re-label, not a new allowance); three NFL season-level sites were NARROWED to the newest season only (past seasons now raise); the five Disposition-2 sites were narrowed to raises; and the Disposition-3 branch is now unreachable via the required-column raise. Net movement is strictly toward less tolerated behaviour.
+  - **AD-3 recovery regression found and fixed by the dedicated tests:** the NBA incremental path logged `nba:cache-unreadable` and then died with a raw `ArrowInvalid` because `_merge_and_save` re-read the corrupt cache. `sports/nba/ingestion.py::pull_schedule` now discards an unreadable/empty cache and falls through to a full source rebuild. Dedicated permanent tests: `tests/test_mlb_ingestion.py::test_ad3_corrupt_cache_is_repulled`, `tests/test_nfl_ingestion.py::TestNflverseAdapterIntegrationSmoke::test_ad3_corrupt_cache_is_repulled`, `tests/test_nhl_ingestion.py::TestNhlApiAdapterIntegrationSmoke::test_ad3_corrupt_cache_is_repulled`, `tests/test_nba_ingestion.py::TestNbaStatsAdapterIntegrationSmoke::test_ad3_corrupt_cache_is_repulled`, plus `tests/test_nhl_ingestion.py::TestNhlApiAdapterIntegrationSmoke::test_ad4_tail_refresh_empty_keeps_cache` (AD-4: cache bytes preserved exactly).
+  - **Audit findings fixed during the evidence crosswalk:** `nfl:cache-unreadable` was declared in the registry but its telemetry site (`sports/nfl/ingestion.py:195`) carried no token → token added; the NHL per-window empty-summary warning (`sports/nhl/ingestion.py:467`) was the un-tokenised duplicate of the bracketed-gap site → `[nhl:genuine-gap]` added; MLB gained an `APPROVED_DEGRADATIONS` registry with tokens at its two pre-existing documented allowances (`mlb:offseason-or-future-empty-chunk`, `mlb:cache-unreadable`) so all four sports are symmetric.
+  - **D1 dependency disclosure:** `nflreadpy==0.1.5` and its transitive closure (`polars==1.44.1`, `pydantic==2.13.5`, `pydantic-settings==2.15.0`, `platformdirs==4.11.7`, `tqdm==4.70.0`) were added to `requirements-dev.txt` (exact pins) and as floors in `pyproject.toml`; the NFL transport was previously an undeclared import (rule 9).
+  - Golden-hash tests (`tests/core/test_matrix_hashes.py`, `tests/core/test_fold_fingerprints.py`) previously reached the real nflverse transport during pytest; they now inject the deterministic cache-only loader (`tests/nfl_fixtures.py::cache_only_loader`) and hit no network.
+- **Enforced by:** `tests/core/test_spec_guardrails.py::test_external_adapters_have_recorded_integration_smoke` (hard-passing) + `test_external_adapter_boundaries_are_injectable_with_none_defaults` + `test_network_transports_are_confined_to_default_adapters` + `test_no_test_module_reaches_the_network`.
+- **Status:** CLOSED (Phase 7.5d, Workstream 5).
 - **Assigned:** Phase 7.5d.
 
 ### B-008 — MLB scope bound bare `FEATURE_COLS`/`RUN_FEATURE_COLS`; MLB versioned contracts were dead declarations (RESOLVED in Phase 7.5b)

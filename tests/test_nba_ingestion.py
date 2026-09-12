@@ -3,6 +3,8 @@ fetching, loud failure behavior, and player panel caching."""
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import date
 
 import pandas as pd
@@ -10,6 +12,9 @@ import pytest
 
 from sports.nba.catalog import normalize_season_code
 from sports.nba.ingestion import (
+    EXTERNAL_SOURCES,
+    SOURCE_BOXSCORE,
+    SOURCE_SCHEDULE,
     NBAIngestionError,
     normalize_schedule,
     pull_player_boxscores,
@@ -315,3 +320,231 @@ class TestPlayerPanel:
                               out)
         # every cached game already present — zero network calls
         assert calls["n"] == 0
+
+
+# ---------------------------------------------------------------------------
+# B-007 external-adapter integration smoke (nba:stats.nba.com/*)
+#
+# Exercises the REAL DEFAULT adapters (`_default_fetch_*`, no injected
+# fetch=) with `urllib.request.urlopen` patched to a deterministic fake:
+# production call shape, normalization, determinism, loud failure modes,
+# and the no-artifact-after-failure contract.
+# ---------------------------------------------------------------------------
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._body = json.dumps(payload).encode()
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _api_schedule_games(sched: pd.DataFrame) -> list[dict]:
+    games = []
+    for r in sched.itertuples(index=False):
+        decided = pd.notna(r.home_score) and pd.notna(r.away_score)
+        games.append({
+            "gameId": r.game_id,
+            "gameStatus": 3 if decided else 1,
+            "gameStatusText": "Final" if decided else "7:00 pm ET",
+            "gameDateEst": f"{r.game_date}T00:00:00Z",
+            "gameDateTimeUTC": r.start_time_utc,
+            "homeTeam": {"teamTricode": r.home_team,
+                         "score": int(r.home_score) if decided else 0},
+            "awayTeam": {"teamTricode": r.away_team,
+                         "score": int(r.away_score) if decided else 0},
+            "isNeutral": False, "arenaName": "Test Arena",
+            "arenaCity": "Test City",
+        })
+    return games
+
+
+def _api_v3_boxscore(game_id: str) -> dict:
+    return {"boxScoreTraditional": {
+        "homeTeam": {"teamTricode": "BOS", "players": [{
+            "personId": 1628973, "nameI": "O. Anunoby", "position": "F",
+            "statistics": {"minutes": "33:05", "points": 8,
+                           "assists": 2, "reboundsTotal": 5}}]},
+        "awayTeam": {"teamTricode": "CLE", "players": [{
+            "personId": 201939, "nameI": "S. Curry", "position": "G",
+            "statistics": {"minutes": "35:00", "points": 30,
+                           "assists": 6, "reboundsTotal": 4}}]},
+    }}
+
+
+def _patch_urlopen(monkeypatch, handler):
+    """Patch the real urllib transport the default adapters use.
+
+    String-target setattr: pytest performs the import internally, so this
+    test module itself never imports a transport (manifest hygiene).
+    """
+    calls: list[str] = []
+
+    def _urlopen(req, timeout=None):
+        url = getattr(req, "full_url", str(req))
+        calls.append(url)
+        return handler(url)
+
+    monkeypatch.setattr("urllib.request.urlopen", _urlopen)
+    return calls
+
+
+class TestNbaStatsAdapterIntegrationSmoke:
+    def test_registry_declares_every_source_and_default_adapter(self):
+        assert EXTERNAL_SOURCES == {
+            SOURCE_SCHEDULE: "_default_fetch_schedule",
+            SOURCE_BOXSCORE: "_default_fetch_boxscore",
+        }
+
+    def test_schedule_default_adapter_end_to_end_and_deterministic(
+            self, tmp_path, monkeypatch):
+        sched = make_schedule(2015, 1)
+        games = _api_schedule_games(sched)
+
+        def handler(url: str):
+            assert "scheduleleaguev2" in url
+            assert "Season=2014-15" in url  # production label form
+            return _FakeResponse({"leagueSchedule": {"gameDates": [
+                {"games": games}]}})
+
+        calls = _patch_urlopen(monkeypatch, handler)
+        out = tmp_path / "schedule.parquet"
+        pull_schedule("2015-01-01", "2015-03-01", out, full_repull=True,
+                      today=date(2026, 9, 9), pause_sec=0)
+        assert calls  # one season-granular production request
+        cached = pd.read_parquet(out)
+        assert cached["game_id"].is_unique
+        for col in ("game_id", "season", "game_type", "game_date",
+                    "home_team", "away_team", "home_score", "away_score"):
+            assert col in cached.columns
+        assert set(cached["game_type"].unique()) == {2}
+        assert pd.api.types.is_datetime64_any_dtype(cached["game_date"])
+        assert set(cached["home_team"]) <= {"BOS", "CLE"} | set(
+            sched["home_team"])
+
+        a, b = tmp_path / "a.parquet", tmp_path / "b.parquet"
+        pull_schedule("2015-01-01", "2015-03-01", a, full_repull=True,
+                      today=date(2026, 9, 9), pause_sec=0)
+        pull_schedule("2015-01-01", "2015-03-01", b, full_repull=True,
+                      today=date(2026, 9, 9), pause_sec=0)
+        pd.testing.assert_frame_equal(pd.read_parquet(a),
+                                      pd.read_parquet(b))
+
+    def test_schedule_failure_modes_are_loud(self, tmp_path, monkeypatch):
+        def boom(url):
+            raise ConnectionError("stats api unreachable")
+
+        _patch_urlopen(monkeypatch, boom)
+        out = tmp_path / "s1.parquet"
+        with pytest.raises(NBAIngestionError) as ei:
+            pull_schedule("2015-01-01", "2015-03-01", out, full_repull=True,
+                          today=date(2026, 9, 9), pause_sec=0)
+        assert ei.value.source == SOURCE_SCHEDULE
+        assert not out.exists()
+
+        # empty past season is a hole
+        _patch_urlopen(monkeypatch, lambda url: _FakeResponse(
+            {"leagueSchedule": {"gameDates": []}}))
+        out2 = tmp_path / "s2.parquet"
+        with pytest.raises(NBAIngestionError):
+            pull_schedule("2015-01-01", "2015-03-01", out2, full_repull=True,
+                          today=date(2026, 9, 9), pause_sec=0)
+        assert not out2.exists()
+
+        # malformed payload: a non-dict game entry is schema drift and is
+        # surfaced as a loud typed adapter error (never silently dropped)
+        _patch_urlopen(monkeypatch, lambda url: _FakeResponse(
+            {"leagueSchedule": {"gameDates": [{"games": ["nope"]}]}}))
+        out3 = tmp_path / "s3.parquet"
+        with pytest.raises(NBAIngestionError) as ei:
+            pull_schedule("2015-01-01", "2015-03-01", out3, full_repull=True,
+                          today=date(2026, 9, 9), pause_sec=0)
+        assert ei.value.source == SOURCE_SCHEDULE
+        assert not out3.exists()
+
+    def test_boxscore_default_adapter_end_to_end_and_deterministic(
+            self, tmp_path, monkeypatch):
+        calls = _patch_urlopen(
+            monkeypatch,
+            lambda url: _FakeResponse(_api_v3_boxscore(url)))
+        out = tmp_path / "player_panel.parquet"
+        pull_player_boxscores(["0021500001"], out,
+                              game_dates={"0021500001": "2015-01-05"})
+        assert calls == ["https://stats.nba.com/stats/boxscoretraditionalv3"
+                         "?gameId=0021500001"]
+        panel = pd.read_parquet(out)
+        for col in ("game_id", "team", "player_id", "player_name",
+                    "minutes", "points", "assists", "rebounds",
+                    "game_date"):
+            assert col in panel.columns
+        assert set(panel["team"]) == {"BOS", "CLE"}
+        assert set(panel["player_name"]) == {"O. Anunoby", "S. Curry"}
+        assert (panel["game_date"] == "2015-01-05").all()
+        assert int(panel.loc[panel["player_name"] == "S. Curry",
+                             "points"].iloc[0]) == 30
+
+        pa = tmp_path / "a.parquet"
+        pb = tmp_path / "b.parquet"
+        pull_player_boxscores(["0021500001"], pa,
+                              game_dates={"0021500001": "2015-01-05"})
+        pull_player_boxscores(["0021500001"], pb,
+                              game_dates={"0021500001": "2015-01-05"})
+        pd.testing.assert_frame_equal(pd.read_parquet(pa),
+                                      pd.read_parquet(pb))
+
+    def test_boxscore_failure_modes_are_loud(self, tmp_path, monkeypatch):
+        def boom(url):
+            raise TimeoutError("boxscore timeout")
+
+        _patch_urlopen(monkeypatch, boom)
+        out = tmp_path / "p1.parquet"
+        with pytest.raises(NBAIngestionError) as ei:
+            pull_player_boxscores(["g1"], out,
+                                  game_dates={"g1": "2015-01-05"})
+        assert ei.value.source == SOURCE_BOXSCORE
+        assert not out.exists()
+
+        _patch_urlopen(monkeypatch, lambda url: _FakeResponse({}))
+        out2 = tmp_path / "p2.parquet"
+        with pytest.raises(NBAIngestionError, match="EMPTY"):
+            pull_player_boxscores(["g1"], out2,
+                                  game_dates={"g1": "2015-01-05"})
+        assert not out2.exists()
+
+        _patch_urlopen(monkeypatch, lambda url: _FakeResponse(
+            {"boxScoreTraditional": {"homeTeam": {"teamTricode": "BOS"},
+                                     "awayTeam": {"teamTricode": "CLE"}}}))
+        out3 = tmp_path / "p3.parquet"
+        with pytest.raises(NBAIngestionError):
+            pull_player_boxscores(["g1"], out3,
+                                  game_dates={"g1": "2015-01-05"})
+        assert not out3.exists()
+
+    def test_ad3_corrupt_cache_is_repulled(self, tmp_path, caplog):
+        """AD-3 (nba:cache-unreadable): the corrupt cache is discarded and
+        the seasons are rebuilt from source. Merging into unreadable bytes
+        must never be attempted (regression: the incremental path used to
+        die with a raw parquet error after logging the token)."""
+        sched = make_schedule(2015, 1)
+        out = tmp_path / "schedule.parquet"
+        fetch = _season_fetch({"2014": sched})
+        pull_schedule("2015-01-01", "2015-03-01", out, full_repull=True,
+                      fetch=fetch, today=date(2026, 9, 9), pause_sec=0)
+        good = len(pd.read_parquet(out))
+        out.write_bytes(b"not parquet")
+        with caplog.at_level(logging.WARNING, logger="sports.nba.ingestion"):
+            returned = pull_schedule("2015-01-01", "2015-03-01", out,
+                                     full_repull=False, fetch=fetch,
+                                     today=date(2026, 9, 9), pause_sec=0)
+        assert any("nba:cache-unreadable" in r.getMessage()
+                   for r in caplog.records)
+        assert returned == out
+        cached = pd.read_parquet(out)
+        assert len(cached) == good and cached["game_id"].is_unique

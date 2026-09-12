@@ -113,6 +113,29 @@ def make_player_stats(season: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def cache_only_loader(cache_dir, kind: str):
+    """Deterministic, network-free stand-in for the nflverse transport.
+
+    Returns the cached season frame when the store has it, else an empty
+    frame (a season the store has not published yet). Lets hash/fold
+    pinning tests exercise the real store without ever touching the
+    network; the production default transport is exercised by the
+    ingestion integration smokes with an injected adapter instead.
+    """
+    from pathlib import Path as _Path
+
+    base = _Path(cache_dir)
+
+    def load(seasons):
+        season = seasons[0] if isinstance(seasons, (list, tuple)) else seasons
+        path = base / f"{kind}_{season}.parquet"
+        if path.exists():
+            return pd.read_parquet(path)
+        return pd.DataFrame()
+
+    return load
+
+
 def make_venue_csv(tmp_path) -> str:
     """Minimal stadiums table covering the fixture teams."""
     rows = []

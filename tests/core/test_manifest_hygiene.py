@@ -51,8 +51,9 @@ _SELF_FILENAME_TOKEN_EXEMPT = {"test_manifest_hygiene.py"}
 _MANIFEST_READ_EXEMPT: dict[str, set[str]] = {
     # relative tests/ path -> import roots permitted ONLY for manifest
     # reading (data access; PyYAML is declared in requirements-dev.txt
-    # and pyproject.toml). Network/experiments/argparse stay forbidden.
+    # and pyproject.toml) or conftest network blocking.
     "tests/core/test_manifest_hygiene.py": {"yaml"},
+    "tests/conftest.py": {"socket"},
 }
 
 # Imports forbidden anywhere under tests/ (constructed dynamically to

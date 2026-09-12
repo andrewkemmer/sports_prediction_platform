@@ -64,7 +64,51 @@ _API_BASE = "https://api-web.nhle.com/v1"
 
 
 class NHLIngestionError(RuntimeError):
-    """Raised when NHL ingestion fails or would silently degrade."""
+    """Raised when NHL ingestion fails or would silently degrade.
+
+    Carries typed context fields: ``source``, ``params``, and ``cause``.
+    """
+
+    def __init__(self, message: str, *, source: str = "nhl:api-web.nhle.com",
+                 params: dict | None = None,
+                 cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.source = source
+        self.params = params or {}
+        self.cause = cause
+
+
+#: Declared external source registry: canonical source id -> the default
+#: adapter function that owns the real transport. Enforced by the B-007
+#: integration-smoke guardrail (tests/core/test_spec_guardrails.py).
+SOURCE_SCHEDULE = "nhl:api-web.nhle.com/schedule"
+SOURCE_BOXSCORE = "nhl:api-web.nhle.com/boxscore"
+
+EXTERNAL_SOURCES: dict[str, str] = {
+    SOURCE_SCHEDULE: "_default_fetch_schedule_window",
+    SOURCE_BOXSCORE: "_default_fetch_boxscore",
+}
+
+#: Required (identity / date / score) source columns — a payload missing
+#: any of these is schema drift and fails loudly. Optional catalog columns
+#: are NaN-filled explicitly.
+REQUIRED_COLS: tuple[str, ...] = (
+    "game_id", "season", "game_type", "game_date", "home_team",
+    "away_team", "home_score", "away_score",
+)
+
+#: Approved non-fatal degradations — every entry is an explicitly
+#: reviewed exception to the no-silent-fallback guardrail.
+APPROVED_DEGRADATIONS: dict[str, str] = {
+    "nhl:cache-unreadable": (
+        "a corrupt schedule cache is re-pulled from the source"),
+    "nhl:tail-refresh-empty": (
+        "an incremental tail refresh may return no rows before new "
+        "games post; the existing cache is authoritative, typed + logged"),
+    "nhl:genuine-gap": (
+        "a bracketed run of empty windows >= GENUINE_GAP_WINDOWS is a "
+        "genuine season break (offseason / pause), typed + logged"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -73,21 +117,34 @@ class NHLIngestionError(RuntimeError):
 
 
 def _default_fetch_schedule_window(start: date, end: date) -> pd.DataFrame:
-    """Pull the schedule week(s) covering [start, end] from the NHL API."""
+    """Pull the schedule week(s) covering [start, end] from the NHL API.
+
+    The real production transport; failures raise a typed
+    ``NHLIngestionError`` preserving source/params/cause.
+    """
     import urllib.request
 
     rows: list[dict] = []
     cursor = start
-    while cursor <= end:
-        url = f"{_API_BASE}/schedule/{cursor.isoformat()}"
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "sports_prediction_platform/phase4"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            payload = json.loads(resp.read().decode())
-        for day in payload.get("gameWeek", []):
-            for g in day.get("games", []):
-                rows.append(_schedule_row(g))
-        cursor += timedelta(days=WINDOW_DAYS)
+    try:
+        while cursor <= end:
+            url = f"{_API_BASE}/schedule/{cursor.isoformat()}"
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "sports_prediction_platform/phase4"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                payload = json.loads(resp.read().decode())
+            for day in payload.get("gameWeek", []):
+                for g in day.get("games", []):
+                    rows.append(_schedule_row(g))
+            cursor += timedelta(days=WINDOW_DAYS)
+    except NHLIngestionError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — transport failure is loud
+        raise NHLIngestionError(
+            f"NHL schedule transport failure for {start}..{end}: {exc}",
+            source=SOURCE_SCHEDULE,
+            params={"start": start.isoformat(), "end": end.isoformat()},
+            cause=exc) from exc
     return pd.DataFrame(rows)
 
 
@@ -112,7 +169,12 @@ def _schedule_row(g: dict) -> dict:
 
 
 def _default_fetch_boxscore(game_id: str) -> dict | None:
-    """The boxscore payload for one game (goalie panel source)."""
+    """The boxscore payload for one game (goalie panel source).
+
+    The real production transport; failures raise a typed
+    ``NHLIngestionError`` (the previous swallow-to-None fallback is gone —
+    a missing boxscore is never silently rendered as TBD).
+    """
     import urllib.request
 
     url = f"{_API_BASE}/gamecenter/{game_id}/boxscore"
@@ -120,10 +182,19 @@ def _default_fetch_boxscore(game_id: str) -> dict | None:
         url, headers={"User-Agent": "sports_prediction_platform/phase4"})
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
-    except Exception as exc:  # noqa: BLE001 — per-game degradation
-        logger.warning("boxscore %s unavailable: %s", game_id, exc)
-        return None
+            payload = json.loads(resp.read().decode())
+    except NHLIngestionError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — transport failure is loud
+        raise NHLIngestionError(
+            f"NHL boxscore transport failure for game {game_id}: {exc}",
+            source=SOURCE_BOXSCORE, params={"game_id": str(game_id)},
+            cause=exc) from exc
+    if not payload:
+        raise NHLIngestionError(
+            f"NHL boxscore payload for game {game_id} is EMPTY",
+            source=SOURCE_BOXSCORE, params={"game_id": str(game_id)})
+    return payload
 
 
 # json import for the default fetchers
@@ -136,7 +207,19 @@ import json  # noqa: E402
 
 
 def normalize_schedule(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply the catalog: game-type filter, dtypes, missing-column NaNs."""
+    """Apply the catalog: game-type filter, dtypes, missing-column NaNs.
+
+    REQUIRED (identity/date/score) columns must be present — a payload
+    missing any of them is schema drift and raises a typed error;
+    optional catalog columns are NaN-filled explicitly.
+    """
+    missing_req = [c for c in REQUIRED_COLS if c not in df.columns]
+    if missing_req and len(df):
+        raise NHLIngestionError(
+            f"NHL schedule payload missing REQUIRED column(s): "
+            f"{missing_req}",
+            source=SOURCE_SCHEDULE,
+            params={"missing_required_columns": missing_req})
     if "game_type" in df.columns:
         n_before = len(df)
         df = df[pd.to_numeric(df["game_type"], errors="coerce")
@@ -176,7 +259,8 @@ def cache_bounds(path: Path) -> tuple[date | None, date | None]:
         hi = pd.Timestamp(gd.max()).date() if pd.notna(gd.max()) else None
         return lo, hi
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not read cache bounds from %s: %s", path, exc)
+        logger.warning("Could not read cache bounds from %s: %s [%s]", path,
+                       exc, "nhl:cache-unreadable")
         return None, None
 
 
@@ -205,7 +289,7 @@ def _merge_and_save(out: Path, inc: pd.DataFrame) -> Path:
 def pull_schedule(start_date: str | date, end_date: str | date,
                   out_path: str | Path = "store/nhl/raw/schedule.parquet",
                   *, full_repull: bool, resume: bool = True,
-                  fetch=_default_fetch_schedule_window,
+                  fetch=None,
                   today: date | None = None,
                   pause_sec: float = 0.0) -> Path:
     """Pull NHL schedules for [start, end] into the Parquet cache.
@@ -227,6 +311,7 @@ def pull_schedule(start_date: str | date, end_date: str | date,
         NHLIngestionError: when a past-dated in-season window stays empty
             after retries, or the full pull returns no data at all.
     """
+    fetch = fetch or _default_fetch_schedule_window
     out = Path(out_path)
     start = start_date if isinstance(start_date, date) \
         else date.fromisoformat(str(start_date))
@@ -264,15 +349,18 @@ def pull_schedule(start_date: str | date, end_date: str | date,
                 else:
                     logger.warning(
                         "Tail refresh returned no schedule rows for %s -> "
-                        "%s — keeping cache (no games posted yet)", inc_start,
-                        end)
+                        "%s — keeping cache (no games posted yet) [%s]",
+                        inc_start, end, "nhl:tail-refresh-empty")
                 return out
             return out
 
     logger.info("Pulling NHL schedule: %s -> %s", start, end)
     raw = _pull_windows(start, end, fetch, today, pause_sec)
     if raw is None or raw.empty:
-        raise NHLIngestionError(f"No NHL schedule data for {start} to {end}")
+        raise NHLIngestionError(
+            f"No NHL schedule data for {start} to {end}",
+            source=SOURCE_SCHEDULE,
+            params={"start": str(start), "end": str(end)})
     raw = normalize_schedule(raw).drop_duplicates(subset=["game_id"],
                                                   keep="first")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -350,7 +438,10 @@ def _pull_windows(start: date, end: date, fetch, today: date,
                     f"NHL schedule window {run_start} -> {run_end} FAILED "
                     f"({CHUNK_RETRIES} attempts) with games existing on "
                     f"BOTH sides. An error is an UNKNOWN outcome — never "
-                    f"assumed empty. Refusing to proceed.")
+                    f"assumed empty. Refusing to proceed.",
+                    source=SOURCE_SCHEDULE,
+                    params={"window_start": str(run_start),
+                            "window_end": str(run_end)})
             if len(run) < GENUINE_GAP_WINDOWS:
                 raise NHLIngestionError(
                     f"NHL schedule window {run_start} -> {run_end} came "
@@ -359,12 +450,15 @@ def _pull_windows(start: date, end: date, fetch, today: date,
                     f"bracketed by returned windows) and the empty run is "
                     f"shorter than {GENUINE_GAP_WINDOWS} consecutive "
                     f"windows. Games here would silently drop from the "
-                    f"decided frame. Refusing to proceed.")
+                    f"decided frame. Refusing to proceed.",
+                    source=SOURCE_SCHEDULE,
+                    params={"window_start": str(run_start),
+                            "window_end": str(run_end)})
             logger.warning(
                 "NHL schedule windows %s -> %s empty for %d consecutive "
                 "windows — classified as a genuine season break "
-                "(offseason / pause); no games expected", run_start,
-                run_end, len(run))
+                "(offseason / pause); no games expected [%s]", run_start,
+                run_end, len(run), "nhl:genuine-gap")
         i = j
     for ws, we, outcome, exc in results:
         if outcome != "ok":
@@ -373,7 +467,7 @@ def _pull_windows(start: date, end: date, fetch, today: date,
             logger.warning(
                 "NHL schedule window %s -> %s empty (%s) — genuine gap "
                 "(offseason / delayed season / future dates); no games "
-                "expected", ws, we, reason)
+                "expected [%s]", ws, we, reason, "nhl:genuine-gap")
     if not frames:
         return None
     return normalize_schedule(pd.concat(frames, ignore_index=True))
@@ -414,12 +508,18 @@ def _goalie_rows_from_boxscore(payload: dict, game_id: str) -> list[dict]:
     return rows
 
 
-def pull_goalie_boxscores(game_ids: list[str], out_path: str | Path
-                          ) -> Path:
+def pull_goalie_boxscores(game_ids: list[str], out_path: str | Path, *,
+                          fetch=None) -> Path:
     """Pull per-game boxscores for the given games and append the goalie
-    rows to the goalie-panel cache. A failed game degrades to a missing
-    row (the panel renders TBD) — never fabricated. Returns the cache
-    path."""
+    rows to the goalie-panel cache.
+
+    ``fetch`` is the injectable transport seam (defaults to the real NHL
+    boxscore transport at call time). A transport failure or empty
+    payload raises a typed ``NHLIngestionError`` — the row is never
+    silently dropped and no cache is written after a failure. Returns the
+    cache path.
+    """
+    fetch = fetch or _default_fetch_boxscore
     out = Path(out_path)
     frames: list[pd.DataFrame] = []
     existing_ids: set[str] = set()
@@ -430,12 +530,17 @@ def pull_goalie_boxscores(game_ids: list[str], out_path: str | Path
     for gid in game_ids:
         if str(gid) in existing_ids:
             continue
-        payload = _default_fetch_boxscore(str(gid))
+        payload = fetch(str(gid))
         if payload is None:
-            continue
+            raise NHLIngestionError(
+                f"NHL boxscore adapter returned no payload for game {gid}",
+                source=SOURCE_BOXSCORE, params={"game_id": str(gid)})
         rows = _goalie_rows_from_boxscore(payload, str(gid))
-        if rows:
-            frames.append(pd.DataFrame(rows))
+        if not rows:
+            raise NHLIngestionError(
+                f"NHL boxscore for game {gid} carried no goalie rows",
+                source=SOURCE_BOXSCORE, params={"game_id": str(gid)})
+        frames.append(pd.DataFrame(rows))
         time.sleep(0.2)  # rate-limit friendliness
     if not frames:
         return out

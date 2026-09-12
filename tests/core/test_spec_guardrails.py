@@ -501,16 +501,279 @@ def test_reserved_durable_names_have_no_registry_entries():
 # 7. external adapter integration smoke (blocker-linked strict xfails)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-007: external source adapter (statcast fetch path) has no "
-           "recorded/sandbox integration smoke; remediation in Phase 7.5d",
-)
+#: Declared external-source registry surface per sport: the ingestion
+#: module that declares `EXTERNAL_SOURCES` and the manifest-listed test
+#: module that must exercise those adapters end to end.
+_EXTERNAL_SOURCE_MODULES = {
+    "mlb": "sports/mlb/ingestion.py",
+    "nfl": "sports/nfl/ingestion.py",
+    "nhl": "sports/nhl/ingestion.py",
+    "nba": "sports/nba/ingestion.py",
+}
+_EXTERNAL_SMOKE_MODULES = {
+    "mlb": "tests/test_mlb_ingestion.py",
+    "nfl": "tests/test_nfl_ingestion.py",
+    "nhl": "tests/test_nhl_ingestion.py",
+    "nba": "tests/test_nba_ingestion.py",
+}
+#: The injectable seam parameter every public ingestion entry point must
+#: expose, per sport (source registry -> public boundary functions).
+_EXTERNAL_SEAMS = {
+    "mlb": {"pull_statcast": "fetch"},
+    "nfl": {"load_schedule": "load", "load_pbp": "load",
+            "load_player_stats": "load", "load_team_names": "load"},
+    "nhl": {"pull_schedule": "fetch", "pull_goalie_boxscores": "fetch"},
+    "nba": {"pull_schedule": "fetch", "pull_player_boxscores": "fetch"},
+}
+#: Transport libraries the real adapters may use; only the four ingestion
+#: modules may import them, and only inside `_default_*` functions.
+_NETWORK_LIBS = {"urllib", "pybaseball", "nflreadpy", "requests", "socket",
+                 "http", "ftplib", "httpx", "aiohttp"}
+
+
+def _parse(path: Path) -> ast.Module:
+    return ast.parse((REPO_ROOT / path).read_text(encoding="utf-8"))
+
+
+def _module_string_constants(tree: ast.Module) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)):
+            out[node.targets[0].id] = node.value.value
+    return out
+
+
+def _external_source_registry(sport: str) -> dict[str, str]:
+    """{constant name -> default adapter function name} declared by the
+    sport's ingestion module."""
+    for node in _parse(Path(_EXTERNAL_SOURCE_MODULES[sport])).body:
+        target = None
+        value = None
+        if isinstance(node, ast.Assign) and node.targets:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign):
+            target, value = node.target, node.value
+        if (isinstance(target, ast.Name) and target.id == "EXTERNAL_SOURCES"
+                and isinstance(value, ast.Dict)):
+            return {
+                (k.id if isinstance(k, ast.Name) else k.value): v.value
+                for k, v in zip(value.keys, value.values)
+            }
+    return {}
+
+
+def _imported_names(path: Path, module: str) -> set[str]:
+    out: set[str] = set()
+    for node in ast.walk(_parse(path)):
+        if isinstance(node, ast.ImportFrom) and node.module == module:
+            out.update(a.name for a in node.names)
+    return out
+
+
 def test_external_adapters_have_recorded_integration_smoke():
-    """B-007: rule 7 — real-source adapters need recorded/sandbox smokes."""
-    raise AssertionError(
-        "statcast adapter fetch path has no recorded or sandboxed "
-        "integration smoke test")
+    """B-007 (hard-passing): rule 7 — every declared external source has a
+    default adapter that owns its transport, and each source is exercised
+    end to end by the sport's manifest-listed integration smoke."""
+    offenders: list[str] = []
+    for sport, module in _EXTERNAL_SOURCE_MODULES.items():
+        tree = _parse(Path(module))
+        consts = _module_string_constants(tree)
+        funcs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+        registry = _external_source_registry(sport)
+        if not registry:
+            offenders.append(f"{module}: EXTERNAL_SOURCES registry missing")
+            continue
+        smoke = Path(_EXTERNAL_SMOKE_MODULES[sport])
+        smoke_names = _imported_names(
+            smoke, module[:-3].replace("/", "."))
+        if "EXTERNAL_SOURCES" not in smoke_names:
+            offenders.append(
+                f"{_EXTERNAL_SMOKE_MODULES[sport]}: does not import "
+                f"EXTERNAL_SOURCES from {module}")
+        for const_name, adapter in registry.items():
+            source_id = consts.get(const_name)
+            if source_id is None:
+                offenders.append(
+                    f"{module}: registry key {const_name} is not a "
+                    f"module-level string constant")
+            elif not source_id.startswith(f"{sport}:"):
+                offenders.append(
+                    f"{module}: source id {source_id!r} is not "
+                    f"{sport}-prefixed")
+            if adapter not in funcs:
+                offenders.append(
+                    f"{module}: adapter {adapter} for {const_name} is not "
+                    f"defined")
+            elif not adapter.startswith("_default_"):
+                offenders.append(
+                    f"{module}: adapter {adapter} is not a _default_* "
+                    f"transport owner")
+            if const_name not in smoke_names:
+                offenders.append(
+                    f"{_EXTERNAL_SMOKE_MODULES[sport]}: no integration "
+                    f"smoke imports {const_name}")
+    assert not offenders, (
+        "external-source adapters lack registry/injectable/smoke "
+        f"coverage: {offenders}")
+
+
+def test_external_adapter_boundaries_are_injectable_with_none_defaults():
+    """Every public ingestion boundary exposes a `fetch=None`/`load=None`
+    seam resolved at call time (`<name> or _default_...`) — so tests inject
+    deterministic fakes and the real transport is never definition-bound."""
+    offenders: list[str] = []
+    for sport, seams in _EXTERNAL_SEAMS.items():
+        module = _EXTERNAL_SOURCE_MODULES[sport]
+        tree = _parse(Path(module))
+        for fn_name, param in seams.items():
+            fn = next((n for n in tree.body
+                       if isinstance(n, ast.FunctionDef)
+                       and n.name == fn_name), None)
+            if fn is None:
+                offenders.append(f"{module}: {fn_name} not defined")
+                continue
+            args = (list(fn.args.args) + list(fn.args.kwonlyargs))
+            match = [a for a in args if a.arg == param]
+            if not match:
+                offenders.append(f"{module}:{fn_name} lacks {param}= seam")
+                continue
+            defaults = list(fn.args.defaults) + list(fn.args.kw_defaults)
+            default_none = any(isinstance(d, ast.Constant) and d.value is None
+                               for d in defaults
+                               if d is not None)
+            if not default_none:
+                offenders.append(
+                    f"{module}:{fn_name} {param}= default is not None")
+            call_time = any(
+                isinstance(n, ast.BoolOp) and isinstance(n.op, ast.Or)
+                and any(isinstance(v, ast.Name) and v.id == param
+                        for v in n.values)
+                and any(isinstance(v, ast.Name)
+                        and v.id.startswith("_default_")
+                        for v in n.values)
+                for n in ast.walk(fn))
+            if not call_time:
+                offenders.append(
+                    f"{module}:{fn_name} does not resolve {param} at call "
+                    f"time (`{param} or _default_*`)")
+    assert not offenders, f"non-injectable adapter boundaries: {offenders}"
+
+
+def test_network_transports_are_confined_to_default_adapters():
+    """No untested direct external call: transport imports exist ONLY in
+    the four ingestion modules, and there ONLY inside `_default_*`
+    functions (the single injectable boundary)."""
+    offenders: list[str] = []
+    for path in _py_files("core", "sports", "frontend", "experiments"):
+        rel = str(path.relative_to(REPO_ROOT))
+        if rel in _EXTERNAL_SOURCE_MODULES.values():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            mods: list[str] = []
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                mods = [node.module]
+            for m in mods:
+                if m.split(".")[0] in _NETWORK_LIBS:
+                    offenders.append(f"{rel}:{node.lineno}: import {m}")
+    for sport, module in _EXTERNAL_SOURCE_MODULES.items():
+        tree = _parse(Path(module))
+        for fn in [n for n in tree.body if isinstance(n, ast.FunctionDef)]:
+            for node in ast.walk(fn):
+                mods = []
+                if isinstance(node, ast.Import):
+                    mods = [a.name for a in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    mods = [node.module]
+                if any(m.split(".")[0] in _NETWORK_LIBS for m in mods) \
+                        and not fn.name.startswith("_default_"):
+                    offenders.append(
+                        f"{module}:{fn.name} imports a network transport "
+                        f"outside the _default_* boundary")
+    assert not offenders, f"unconfined network transports: {offenders}"
+
+
+def test_no_test_module_reaches_the_network():
+    """Governance: no test module imports a transport, and conftest
+    installs the autouse socket block that makes any accidental network
+    access fail loudly (hardened rules 7/16)."""
+    offenders: list[str] = []
+    for path in _py_files("tests"):
+        rel = str(path.relative_to(REPO_ROOT))
+        if rel == "tests/conftest.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            mods: list[str] = []
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                mods = [node.module]
+            for m in mods:
+                if m.split(".")[0] in _NETWORK_LIBS:
+                    offenders.append(f"{rel}:{node.lineno}: import {m}")
+    conftest = (REPO_ROOT / "tests" / "conftest.py").read_text(
+        encoding="utf-8")
+    if "autouse=True" not in conftest or "getaddrinfo" not in conftest:
+        offenders.append("tests/conftest.py: autouse socket block missing")
+    assert not offenders, f"tests reach the network: {offenders}"
+
+
+def test_approved_degradations_are_declared_and_logged_per_sport():
+    """D2/B-007: no silent fallback. Every non-fatal degradation must be
+    (a) EXPLICIT — a key in the sport's `APPROVED_DEGRADATIONS` — and
+    (b) LOGGED — the exact token passed at a `logger.*` telemetry site in
+    the same module. The check is bidirectional: a declared-but-never-
+    logged degradation and an undeclared-but-logged one are both defects."""
+    offenders: list[str] = []
+    for sport, module in _EXTERNAL_SOURCE_MODULES.items():
+        tree = _parse(Path(module))
+        declared: set[str] = set()
+        for node in tree.body:
+            target = value = None
+            if isinstance(node, ast.Assign) and node.targets:
+                target, value = node.targets[0], node.value
+            elif isinstance(node, ast.AnnAssign):
+                target, value = node.target, node.value
+            if (isinstance(target, ast.Name)
+                    and target.id == "APPROVED_DEGRADATIONS"
+                    and isinstance(value, ast.Dict)):
+                declared = {k.value for k in value.keys
+                            if isinstance(k, ast.Constant)
+                            and isinstance(k.value, str)}
+        if not declared:
+            offenders.append(
+                f"{module}: APPROVED_DEGRADATIONS missing or empty")
+            continue
+        logged: set[str] = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "logger"):
+                for arg in node.args:
+                    if isinstance(arg, ast.Constant) \
+                            and isinstance(arg.value, str):
+                        logged.add(arg.value)
+        not_logged = sorted(declared - logged)
+        if not_logged:
+            offenders.append(
+                f"{module}: declared but never logged at a logger.* site: "
+                f"{not_logged}")
+        undeclared = sorted(t for t in logged
+                            if t.startswith(f"{sport}:")
+                            and t not in declared)
+        if undeclared:
+            offenders.append(
+                f"{module}: logged degradation token(s) not declared in "
+                f"APPROVED_DEGRADATIONS: {undeclared}")
+    assert not offenders, (
+        f"silent or undeclared degradations: {offenders}")
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ All fetchers are injected — no network access in tests.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 
 import pandas as pd
@@ -13,7 +14,10 @@ import pytest
 
 from sports.mlb.catalog import PITCH_IDENTITY_COLS, STATCAST_COLS
 from sports.mlb.ingestion import (
+    EXTERNAL_SOURCES,
+    SOURCE_STATCAST,
     MLBIngestionError,
+    _default_fetch,
     cache_bounds,
     normalize_columns,
     pull_statcast,
@@ -127,10 +131,13 @@ def test_incremental_backfill_extends_history(tmp_path):
 
 
 def test_normalize_adds_missing_catalog_columns():
-    df = _mk(D0, 2)[["game_pk", "game_date", "home_team", "away_team"]]
+    df = _mk(D0, 2)
+    # Drop optional columns to verify they get added back as NaN
+    df = df.drop(columns=["release_speed", "events", "description"])
     out = normalize_columns(df)
     for col in STATCAST_COLS:
         assert col in out.columns
+    assert pd.isna(out["release_speed"]).all()
     assert pd.api.types.is_datetime64_any_dtype(out["game_date"])
 
 
@@ -152,3 +159,132 @@ def test_dedupe_keeps_newest_copy(tmp_path):
     dup_key = cached.iloc[[0]][list(PITCH_IDENTITY_COLS)]
     overlap = cached.merge(dup_key, on=list(PITCH_IDENTITY_COLS))
     assert len(overlap) == 1  # identity is unique in the cache
+
+
+# ---------------------------------------------------------------------------
+# B-007 external-adapter integration smoke (mlb:pybaseball.statcast)
+#
+# Exercises the REAL DEFAULT adapter path (`_default_fetch`, no injected
+# fetch=) with the transport patched to a deterministic fake: the
+# production call site, argument shape, normalization, determinism,
+# loud failure modes, and the no-artifact-after-failure contract.
+# ---------------------------------------------------------------------------
+
+_SMOKE_WINDOW = (D0, D0 + timedelta(days=6))
+
+
+def _patch_statcast(monkeypatch, fake):
+    """Patch the real transport the default adapter imports lazily.
+
+    String-target setattr: pytest performs the import internally, so this
+    test module itself never imports a transport (manifest hygiene)."""
+    monkeypatch.setattr("pybaseball.statcast", fake)
+
+
+def _smoke_pull(out, *, full_repull=True):
+    return pull_statcast(_SMOKE_WINDOW[0], _SMOKE_WINDOW[1], out_path=out,
+                         full_repull=full_repull)
+
+
+class TestStatcastAdapterIntegrationSmoke:
+    def test_registry_declares_the_source_and_default_adapter(self):
+        assert EXTERNAL_SOURCES[SOURCE_STATCAST] == "_default_fetch"
+        assert callable(_default_fetch)
+
+    def test_default_adapter_end_to_end_schema_and_values(
+            self, tmp_path, monkeypatch):
+        calls: list[tuple] = []
+
+        def fake(start, end, *args, **kwargs):
+            calls.append((start, end))
+            return _mk(D0, 7)
+
+        _patch_statcast(monkeypatch, fake)
+        out = tmp_path / "pitches.parquet"
+        _smoke_pull(out)
+
+        # The REAL production call shape: statcast(start_dt, end_dt) as
+        # ISO date strings — never (year, month) and never a team token.
+        assert calls == [(str(_SMOKE_WINDOW[0]), str(_SMOKE_WINDOW[1]))]
+        df = pd.read_parquet(out)
+        for col in STATCAST_COLS:
+            assert col in df.columns
+        assert set(PITCH_IDENTITY_COLS) <= set(df.columns)
+        assert df["game_pk"].notna().all()
+        assert pd.api.types.is_datetime64_any_dtype(df["game_date"])
+        assert set(df["game_type"].unique()) <= {"R"}
+        assert pd.api.types.is_numeric_dtype(df["home_score"])
+        assert len(df) == len(_mk(D0, 7))
+
+    def test_default_adapter_is_deterministic(
+            self, tmp_path, monkeypatch):
+        _patch_statcast(monkeypatch, lambda s, e, *a, **k: _mk(D0, 7))
+        a, b = tmp_path / "a.parquet", tmp_path / "b.parquet"
+        _smoke_pull(a)
+        _smoke_pull(b)
+        pd.testing.assert_frame_equal(pd.read_parquet(a),
+                                      pd.read_parquet(b))
+
+    def test_transport_failure_raises_typed_error(
+            self, tmp_path, monkeypatch):
+        def boom(s, e, *a, **k):
+            raise ConnectionError("statcast unreachable")
+
+        _patch_statcast(monkeypatch, boom)
+        out = tmp_path / "p.parquet"
+        with pytest.raises(MLBIngestionError) as ei:
+            _smoke_pull(out)
+        assert ei.value.source == SOURCE_STATCAST
+        assert ei.value.params["chunk_start"] == str(D0)
+        # the typed chain preserves the originating transport failure
+        cause = ei.value.cause
+        while isinstance(cause, MLBIngestionError):
+            cause = cause.cause
+        assert isinstance(cause, ConnectionError)
+        assert "statcast unreachable" in str(cause)
+        assert not out.exists()  # no artifact after a transport failure
+
+    def test_empty_past_window_raises_and_writes_nothing(
+            self, tmp_path, monkeypatch):
+        _patch_statcast(monkeypatch, lambda s, e, *a, **k: pd.DataFrame())
+        out = tmp_path / "p.parquet"
+        with pytest.raises(MLBIngestionError, match="core regular-season"):
+            _smoke_pull(out)
+        assert not out.exists()
+
+    def test_schema_drift_raises_and_writes_nothing(
+            self, tmp_path, monkeypatch):
+        drifted = _mk(D0, 7).drop(columns=["game_pk"])
+        _patch_statcast(monkeypatch, lambda s, e, *a, **k: drifted)
+        out = tmp_path / "p.parquet"
+        with pytest.raises(MLBIngestionError, match="missing required") as ei:
+            _smoke_pull(out)
+        assert ei.value.params["missing_columns"] == ["game_pk"]
+        assert not out.exists()
+
+    def test_malformed_payload_raises_and_writes_nothing(
+            self, tmp_path, monkeypatch):
+        _patch_statcast(monkeypatch, lambda s, e, *a, **k: None)
+        out = tmp_path / "p.parquet"
+        with pytest.raises(MLBIngestionError):
+            _smoke_pull(out)
+        assert not out.exists()
+
+
+def test_ad3_corrupt_cache_is_repulled(tmp_path, caplog):
+    """AD-3 (mlb:cache-unreadable): an unreadable cache is logged with its
+    declared token and the run RECOVERS by re-pulling the source — never a
+    partial/merged write onto corrupt bytes."""
+    out = tmp_path / "pitches.parquet"
+    fetch = lambda s, e: _mk(s, (e - s).days + 1)
+    pull_statcast(D0, D0 + timedelta(days=6), out_path=out, full_repull=True,
+                  fetch=fetch)
+    good = len(pd.read_parquet(out))
+    out.write_bytes(b"not parquet")
+    with caplog.at_level(logging.WARNING, logger="sports.mlb.ingestion"):
+        returned = pull_statcast(D0, D0 + timedelta(days=6), out_path=out,
+                                 full_repull=False, fetch=fetch)
+    assert any("mlb:cache-unreadable" in r.getMessage()
+               for r in caplog.records)
+    assert returned == out
+    assert len(pd.read_parquet(out)) == good  # recovered, not truncated

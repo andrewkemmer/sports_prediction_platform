@@ -60,7 +60,51 @@ _HEADERS = {
 
 
 class NBAIngestionError(RuntimeError):
-    """Raised when NBA ingestion fails or would silently degrade."""
+    """Raised when NBA ingestion fails or would silently degrade.
+
+    Carries typed context fields: ``source``, ``params``, and ``cause``.
+    """
+
+    def __init__(self, message: str, *, source: str = "nba:stats.nba.com",
+                 params: dict | None = None,
+                 cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.source = source
+        self.params = params or {}
+        self.cause = cause
+
+
+#: Declared external source registry: canonical source id -> the default
+#: adapter function that owns the real transport. Enforced by the B-007
+#: integration-smoke guardrail (tests/core/test_spec_guardrails.py).
+SOURCE_SCHEDULE = "nba:stats.nba.com/scheduleleaguev2"
+SOURCE_BOXSCORE = "nba:stats.nba.com/boxscoretraditionalv3"
+
+EXTERNAL_SOURCES: dict[str, str] = {
+    SOURCE_SCHEDULE: "_default_fetch_schedule",
+    SOURCE_BOXSCORE: "_default_fetch_boxscore",
+}
+
+#: Required (identity / date / score) source columns — a payload missing
+#: any of these is schema drift and fails loudly. Optional catalog columns
+#: are NaN-filled explicitly.
+REQUIRED_COLS: tuple[str, ...] = (
+    "game_id", "season", "game_type", "game_date", "home_team",
+    "away_team", "home_score", "away_score",
+)
+
+#: Approved non-fatal degradations — every entry is an explicitly
+#: reviewed exception to the no-silent-fallback guardrail.
+APPROVED_DEGRADATIONS: dict[str, str] = {
+    "nba:cache-unreadable": (
+        "a corrupt schedule cache is re-pulled from the source"),
+    "nba:current-season-not-posted": (
+        "the current season's schedule may not be posted yet; an empty "
+        "pull writes an explicitly empty cache, typed + logged"),
+    "nba:boxscore-missing-schedule-date": (
+        "the v3 boxscore carries no date; a game with no schedule date is "
+        "SKIPPED (PIT rule: never guess a date) rather than fabricated"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +137,11 @@ def season_label(season_start_year: str | int) -> str:
 
 
 def _default_fetch_schedule(season_start_year: str) -> pd.DataFrame:
-    """Pull the full-season schedule from the NBA Stats API."""
+    """Pull the full-season schedule from the NBA Stats API.
+
+    The real production transport; failures raise a typed
+    ``NBAIngestionError`` preserving source/params/cause.
+    """
     import json
     import urllib.request
     import urllib.error
@@ -101,8 +149,23 @@ def _default_fetch_schedule(season_start_year: str) -> pd.DataFrame:
     label = season_label(season_start_year)
     url = (f"{_API_BASE}/scheduleleaguev2?LeagueID=00&Season={label}")
     req = urllib.request.Request(url, headers=_HEADERS)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        payload = json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode())
+    except NBAIngestionError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — transport failure is loud
+        raise NBAIngestionError(
+            f"NBA schedule transport failure for season "
+            f"{season_start_year} ({label}): {exc}",
+            source=SOURCE_SCHEDULE,
+            params={"season": str(season_start_year), "label": label},
+            cause=exc) from exc
+    if not payload:
+        raise NBAIngestionError(
+            f"NBA schedule payload for season {label} is EMPTY",
+            source=SOURCE_SCHEDULE,
+            params={"season": str(season_start_year), "label": label})
     rows: list[dict] = []
     for day in (payload.get("leagueSchedule") or {}).get("gameDates", []):
         for g in day.get("games", []):
@@ -191,14 +254,25 @@ def _default_fetch_boxscore(game_id: str) -> dict | None:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             payload = json.loads(resp.read().decode())
-    except Exception as exc:  # noqa: BLE001 — per-game degradation
-        logger.warning("boxscore %s unavailable: %s", game_id, exc)
-        return None
+    except NBAIngestionError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — transport failure is loud
+        raise NBAIngestionError(
+            f"NBA boxscore transport failure for game {game_id}: {exc}",
+            source=SOURCE_BOXSCORE, params={"game_id": str(game_id)},
+            cause=exc) from exc
+    if not payload:
+        raise NBAIngestionError(
+            f"NBA boxscore payload for game {game_id} is EMPTY",
+            source=SOURCE_BOXSCORE, params={"game_id": str(game_id)})
     try:
         return _flatten_v3_boxscore(payload)
-    except Exception as exc:  # noqa: BLE001 — per-game degradation
-        logger.warning("boxscore %s malformed: %s", game_id, exc)
-        return None
+    except Exception as exc:  # noqa: BLE001 — schema drift is loud
+        raise NBAIngestionError(
+            f"NBA boxscore payload for game {game_id} is MALFORMED "
+            f"(schema drift): {exc}",
+            source=SOURCE_BOXSCORE, params={"game_id": str(game_id)},
+            cause=exc) from exc
 
 
 def _flatten_v3_boxscore(payload: dict) -> dict:
@@ -237,7 +311,19 @@ def _flatten_v3_boxscore(payload: dict) -> dict:
 
 
 def normalize_schedule(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply the catalog: game-type filter, dtypes, missing-column NaNs."""
+    """Apply the catalog: game-type filter, dtypes, missing-column NaNs.
+
+    REQUIRED (identity/date/score) columns must be present on a non-empty
+    payload — missing any is schema drift and raises a typed error;
+    optional catalog columns are NaN-filled explicitly.
+    """
+    missing_req = [c for c in REQUIRED_COLS if c not in df.columns]
+    if missing_req and len(df):
+        raise NBAIngestionError(
+            f"NBA schedule payload missing REQUIRED column(s): "
+            f"{missing_req}",
+            source=SOURCE_SCHEDULE,
+            params={"missing_required_columns": missing_req})
     if "game_type" in df.columns:
         n_before = len(df)
         df = df[pd.to_numeric(df["game_type"], errors="coerce")
@@ -277,7 +363,8 @@ def cache_bounds(path: Path) -> tuple[date | None, date | None]:
         hi = pd.Timestamp(gd.max()).date() if pd.notna(gd.max()) else None
         return lo, hi
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not read cache bounds from %s: %s", path, exc)
+        logger.warning("Could not read cache bounds from %s: %s [%s]", path,
+                       exc, "nba:cache-unreadable")
         return None, None
 
 
@@ -292,8 +379,8 @@ def cached_seasons(path: Path) -> set[str]:
         return {str(int(s) - 1) for s in pd.to_numeric(
             seasons, errors="coerce").dropna()}
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not read cached seasons from %s: %s",
-                       path, exc)
+        logger.warning("Could not read cached seasons from %s: %s [%s]",
+                       path, exc, "nba:cache-unreadable")
         return set()
 
 
@@ -366,25 +453,37 @@ def pull_schedule(start_date: str | date, end_date: str | date,
             out.unlink()
     elif resume and out.exists():
         have = cached_seasons(out)
-        missing = [s for s in needed if s not in have]
-        if not missing:
-            logger.info("Cache covers every needed season %s — refresh "
-                        "the current season only", needed)
-            missing = ([current_start_year]
-                       if current_start_year in needed else [])
-            # refresh the current season only if its data may have changed
-            # (games finish hours after tip); skip when it isn't needed
-            missing = [s for s in missing if s in needed]
+        if not have:
+            # AD-3 (nba:cache-unreadable): the cache exists but holds no
+            # readable seasons, so merging into it would die on the corrupt
+            # bytes. Discard it and fall through to a full rebuild — the
+            # recovery path must not raise on a corrupt cache.
+            logger.warning(
+                "schedule cache unreadable/empty — discarding and "
+                "rebuilding from source [%s]", "nba:cache-unreadable")
+            out.unlink(missing_ok=True)
         else:
-            logger.info("Cache missing seasons %s — pulling them", missing)
-        for s in missing:
-            df = _fetch_season_with_retry(fetch, s, current_start_year,
-                                          today)
-            if df is not None and len(df):
-                out = _merge_and_save(out, normalize_schedule(df))
-                time.sleep(pause_sec)
-        if out.exists():
-            return out
+            missing = [s for s in needed if s not in have]
+            if not missing:
+                logger.info("Cache covers every needed season %s — refresh "
+                            "the current season only", needed)
+                missing = ([current_start_year]
+                           if current_start_year in needed else [])
+                # refresh the current season only if its data may have
+                # changed (games finish hours after tip); skip when it is
+                # not needed
+                missing = [s for s in missing if s in needed]
+            else:
+                logger.info("Cache missing seasons %s — pulling them",
+                            missing)
+            for s in missing:
+                df = _fetch_season_with_retry(fetch, s, current_start_year,
+                                              today)
+                if df is not None and len(df):
+                    out = _merge_and_save(out, normalize_schedule(df))
+                    time.sleep(pause_sec)
+            if out.exists():
+                return out
 
     logger.info("Pulling NBA schedule seasons %s for %s -> %s",
                 needed, start, end)
@@ -400,13 +499,17 @@ def pull_schedule(start_date: str | date, end_date: str | date,
             # the schedule has not posted yet — legitimate (no hole).
             logger.warning(
                 "No NBA schedule data yet for current season(s) %s "
-                "(schedule not posted) — writing an empty cache", needed)
+                "(schedule not posted) — writing an empty cache [%s]",
+                needed, "nba:current-season-not-posted")
             out.parent.mkdir(parents=True, exist_ok=True)
             normalize_schedule(pd.DataFrame(
                 columns=SCHEDULE_COLS)).to_parquet(out, index=False)
             return out
         raise NBAIngestionError(
-            f"No NBA schedule data for {start} to {end} (seasons {needed})")
+            f"No NBA schedule data for {start} to {end} (seasons {needed})",
+            source=SOURCE_SCHEDULE,
+            params={"start": str(start), "end": str(end),
+                    "seasons": list(needed)})
     raw = normalize_schedule(pd.concat(frames, ignore_index=True))
     raw = raw.drop_duplicates(subset=["game_id"], keep="first")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -441,7 +544,8 @@ def _fetch_season_with_retry(fetch, season: str, current_start_year: int,
                         f"EMPTY after {CHUNK_RETRIES} attempts and the "
                         f"season is PAST ({current_start_year} is "
                         f"current). A 0-game season is a data hole — "
-                        f"refusing to proceed.")
+                        f"refusing to proceed.",
+                        source=SOURCE_SCHEDULE, params={"season": str(season)})
                 logger.warning(
                     "Season %s returned no games (current season — "
                     "schedule may not be posted yet)", season)
@@ -462,7 +566,9 @@ def _fetch_season_with_retry(fetch, season: str, current_start_year: int,
                            season, attempt + 1, CHUNK_RETRIES, exc)
     raise NBAIngestionError(
         f"NBA schedule for season {season} FAILED after "
-        f"{CHUNK_RETRIES} attempts: {last_exc}")
+        f"{CHUNK_RETRIES} attempts: {last_exc}",
+        source=SOURCE_SCHEDULE, params={"season": str(season)},
+        cause=last_exc)
 
 
 # ---------------------------------------------------------------------------
@@ -499,8 +605,8 @@ def _player_rows_from_boxscore(payload: dict, game_id: str) -> list[dict]:
 
 
 def pull_player_boxscores(game_ids: list[str], out_path: str | Path,
-                          game_dates: dict[str, str] | None = None
-                          ) -> Path:
+                          game_dates: dict[str, str] | None = None, *,
+                          fetch=None) -> Path:
     """Pull per-game boxscores for the given games and append the player
     rows to the participant-panel cache.
 
@@ -518,12 +624,15 @@ def pull_player_boxscores(game_ids: list[str], out_path: str | Path,
         cached = pd.read_parquet(out)
         existing_ids = set(cached["game_id"].astype(str))
         frames.append(cached)
+    fetch = fetch or _default_fetch_boxscore
     for gid in game_ids:
         if str(gid) in existing_ids:
             continue
-        payload = _default_fetch_boxscore(str(gid))
+        payload = fetch(str(gid))
         if payload is None:
-            continue
+            raise NBAIngestionError(
+                f"NBA boxscore adapter returned no payload for game {gid}",
+                source=SOURCE_BOXSCORE, params={"game_id": str(gid)})
         rows = _player_rows_from_boxscore(payload, str(gid))
         gd = (game_dates or {}).get(str(gid))
         if rows and gd:
@@ -533,7 +642,13 @@ def pull_player_boxscores(game_ids: list[str], out_path: str | Path,
         elif rows:
             logger.warning(
                 "boxscore %s has no schedule date — row skipped (the "
-                "panel's strictly-prior logic requires real dates)", gid)
+                "panel's strictly-prior logic requires real dates) [%s]",
+                gid, "nba:boxscore-missing-schedule-date")
+        else:
+            raise NBAIngestionError(
+                f"NBA boxscore for game {gid} carried no PlayerStats rows "
+                f"(schema drift)",
+                source=SOURCE_BOXSCORE, params={"game_id": str(gid)})
         time.sleep(REQUEST_PAUSE_SEC)  # rate-limit friendliness
     if not frames:
         return out
