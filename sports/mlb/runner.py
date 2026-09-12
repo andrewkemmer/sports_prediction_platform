@@ -287,8 +287,9 @@ def run_mlb_production(
             calibration=_calibration_payload(moneyline, pred_window),
             model_monitor=_model_monitor_payload(moneyline, study),
             rolling_brier=_rolling_brier_payload(markets_v3),
-            features_metadata=_features_metadata_payload(feature_cols, target,
-                                                         candidate),
+            features_metadata=_features_metadata_payload(
+                feature_cols, target, candidate,
+                study.moneyline_contract_version),
             run_engine_monitor=_run_engine_monitor_payload(markets_v3),
             feature_drift=pd.DataFrame(
                 columns=["feature", "current_mean", "baseline_mean", "psi",
@@ -486,14 +487,20 @@ def _rolling_brier_payload(markets_v3: dict) -> dict:
 
 
 def _features_metadata_payload(feature_cols, target_date_str: str = "",
-                               decided: pd.DataFrame | None = None) -> dict:
+                               decided: pd.DataFrame | None = None,
+                               version: str | None = None) -> dict:
     """The real registry metadata (fixture shape: features[<name>] = spec).
 
     Entirely-unavailable features (all-NaN across the decided frame or
     absent from it) are EXPLICITLY marked in ``warnings`` — never silently
     dropped or silently substituted (missing-data policy, Phase 2.1).
+
+    ``version`` binds the ACTIVE moneyline contract version from the study
+    call site (T3); it defaults to the registry's current version so the
+    helper stays callable standalone.
     """
-    from sports.mlb.feature_registry import build_feature_contract
+    from sports.mlb.feature_registry import (MONEYLINE_CONTRACT_VERSION,
+                                             build_feature_contract)
     import numpy as np
     warnings: list[str] = []
     if decided is not None and len(feature_cols):
@@ -505,8 +512,9 @@ def _features_metadata_payload(feature_cols, target_date_str: str = "",
                     f"unavailable: {c} (no observations in source data — "
                     f"routed as explicitly unavailable per missing-data "
                     f"policy; not fabricated)")
-    payload = build_feature_contract().to_metadata_json(target_date_str,
-                                                        warnings=warnings)
+    payload = build_feature_contract(
+        version or MONEYLINE_CONTRACT_VERSION
+    ).to_metadata_json(target_date_str, warnings=warnings)
     payload["n_features"] = len(feature_cols)
     return payload
 

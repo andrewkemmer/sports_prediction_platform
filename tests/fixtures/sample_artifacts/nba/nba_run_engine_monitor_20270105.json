@@ -58,7 +58,7 @@
  "fit": {},
  "market_metrics": {},
  "config": {
-  "feature_set_version": "nba-prod-v1",
+  "feature_set_version": "nba-moneyline-v75",
   "warmup_seasons": [
    2015
   ],

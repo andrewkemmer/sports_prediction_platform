@@ -139,3 +139,27 @@ def make_statcast_games(
     df = pd.concat(frames, ignore_index=True)
     df["game_date"] = pd.to_datetime(df["game_date"])
     return df
+
+
+# ---------------------------------------------------------------------------
+# Permanent evidence fixture (Phase 7.5e-A rebaseline)
+# ---------------------------------------------------------------------------
+#: Deterministic bounded raw dataset backing the committed
+#: ``tests/fixtures/evidence/mlb.parquet`` consumed by
+#: ``tests/core/test_fold_fingerprints.py`` and ``test_matrix_hashes.py``.
+EVIDENCE_START = date(2026, 4, 1)
+EVIDENCE_DAYS = 100
+EVIDENCE_GAMES_PER_DAY = 8
+EVIDENCE_SEED = 42
+
+
+def evidence_frame() -> pd.DataFrame:
+    """Regenerate the committed MLB evidence fixture deterministically.
+
+    Tests LOAD ``tests/fixtures/evidence/mlb.parquet`` and never call this
+    to overwrite it; it exists so the fixture stays reproducible from
+    repository-controlled code under a reviewed rebaseline.
+    """
+    return make_statcast_games(EVIDENCE_START, n_days=EVIDENCE_DAYS,
+                               games_per_day=EVIDENCE_GAMES_PER_DAY,
+                               seed=EVIDENCE_SEED, include_slate_day=False)

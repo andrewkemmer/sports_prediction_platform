@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from core.record_validation import validate_record
+from sports.nhl.feature_registry import MONEYLINE_CONTRACT_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +248,10 @@ def write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,
     fx = _fixture()["artifacts"]["feature_json"]
     record = {
         "created_utc": _now_utc(),
-        "feature_set_version": "nhl-prod-v1",
+        # Bound from the active moneyline contract carried in config_meta
+        # (T3), never a hardcoded legacy literal.
+        "feature_set_version": config_meta.get("feature_set_version",
+                                               MONEYLINE_CONTRACT_VERSION),
         "manifest": feature_contract_metadata,
         "served_columns": list(feature_contract_metadata.get(
             "features", {}).keys()) or None,

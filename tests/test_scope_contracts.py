@@ -29,6 +29,24 @@ import dataclasses
 
 import pytest
 
+from core.contracts import (
+    validate_columns_have_metadata,
+    validate_metadata_is_reachable,
+)
+
+
+@pytest.fixture(autouse=True)
+def _raw_store(raw_store):
+    """Bind the adapter builders to the committed raw fixtures.
+
+    The adapter-selection assertion builds each sport's optimization adapter,
+    which reads the gitignored store; without a store the builder returns an
+    empty mapping and the binding proof cannot run. ``tests/raw_store.py``
+    materializes the committed bounded fixtures (never clobbering an existing
+    store) so the proof runs everywhere, offline.
+    """
+    return raw_store
+
 
 def _sport_contracts(module_name: str):
     """Import a sport's study config module and return its scope contracts."""
@@ -279,3 +297,85 @@ def test_study_config_imports_and_binds_registry_contracts(sport: str) -> None:
                         isinstance(val, ast.Call) and not val.args)
                     assert ok, (
                         f"{sport}: study_config declares {t.id} directly")
+
+
+# ---------------------------------------------------------------------------
+# Phase 7.5e-A (T4): declared tuples validated against each sport's EXISTING
+# registry metadata model (MLB FeatureEntry registry, NFL/NHL/NBA _SPEC_DEFS).
+# ---------------------------------------------------------------------------
+
+def _registry_metadata(sport: str):
+    """Metadata names from the sport's own model via one interface.
+
+    No sport is forced onto a parallel registry: MLB keeps its
+    ``FeatureEntry`` records, NFL/NHL/NBA keep their ``_SPEC_DEFS`` mapping.
+    """
+    import importlib
+
+    mod = importlib.import_module(f"sports.{sport}.feature_registry")
+    if sport == "mlb":
+        return {e.name for e in mod.registry_entries()}
+    return frozenset(mod._SPEC_DEFS)
+
+
+@pytest.mark.parametrize("sport", sorted(SPORT_MODULES))
+def test_declared_tuples_have_registry_metadata(sport: str) -> None:
+    """Every column of BOTH declared contract tuples has registry metadata."""
+    import importlib
+
+    mod = importlib.import_module(f"sports.{sport}.feature_registry")
+    metadata = _registry_metadata(sport)
+    validate_columns_have_metadata(
+        sport, "moneyline", mod.MONEYLINE_FEATURE_COLS, metadata)
+    validate_columns_have_metadata(
+        sport, "market", mod.MARKET_FEATURE_COLS, metadata)
+
+
+@pytest.mark.parametrize("sport", sorted(SPORT_MODULES))
+def test_registry_metadata_is_reachable_from_declared_tuples(
+        sport: str) -> None:
+    """No orphan metadata: every registry entry is claimed by a tuple."""
+    import importlib
+
+    mod = importlib.import_module(f"sports.{sport}.feature_registry")
+    declared = set(mod.MONEYLINE_FEATURE_COLS) | set(mod.MARKET_FEATURE_COLS)
+    validate_metadata_is_reachable(sport, _registry_metadata(sport), declared)
+
+
+def test_mlb_market_only_entries_are_market_not_moneyline() -> None:
+    """The three run-engine-only diffs are marked market, stay OUT of the
+    moneyline view, and do not widen it from 64 to 67."""
+    from sports.mlb import feature_registry as reg
+
+    entries = {e.name: e for e in reg.registry_entries()}
+    for name in ("sp_k9_diff", "sp_k9_5g_diff", "sp_xwoba_diff"):
+        entry = entries[name]
+        assert "market" in entry.contracts
+        assert "moneyline" not in entry.contracts
+        assert name in reg.MARKET_FEATURE_COLS
+        assert name not in reg.MONEYLINE_FEATURE_COLS
+    contract = reg.build_feature_contract()
+    assert len(contract.features) == 64
+    assert contract.feature_names() == tuple(reg.MONEYLINE_FEATURE_COLS)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7.5e-A (T3): the features_metadata writer stamps the ACTIVE study
+# moneyline contract version, never the module default / a legacy literal.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sport", sorted(SPORT_MODULES))
+def test_feature_contract_binds_active_moneyline_version(sport: str) -> None:
+    """The builder honors the study-carried active moneyline version."""
+    import importlib
+
+    reg = importlib.import_module(f"sports.{sport}.feature_registry")
+    loader = {"mlb": "load_mlb_study", "nfl": "load_nfl_study",
+              "nba": "load_nba_study", "nhl": "load_nhl_study"}[sport]
+    study = getattr(importlib.import_module(
+        f"sports.{sport}.study_config"), loader)()
+    contract = reg.build_feature_contract(study.moneyline_contract_version)
+    assert contract.version == study.moneyline_contract_version
+    assert contract.version == reg.MONEYLINE_CONTRACT_VERSION
+    # still moneyline-only: the version bind never changes the feature set
+    assert contract.feature_names() == tuple(reg.MONEYLINE_FEATURE_COLS)

@@ -733,7 +733,9 @@ def test_network_transports_are_confined_to_default_adapters():
     functions (the single injectable boundary)."""
     offenders: list[str] = []
     for path in _py_files("core", "sports", "frontend", "experiments"):
-        rel = str(path.relative_to(REPO_ROOT))
+        # posix-normalized so the forward-slash module allowlist matches on
+        # Windows too (str(WindowsPath) uses backslashes).
+        rel = path.relative_to(REPO_ROOT).as_posix()
         if rel in _EXTERNAL_SOURCE_MODULES.values():
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -769,7 +771,9 @@ def test_no_test_module_reaches_the_network():
     access fail loudly (hardened rules 7/16)."""
     offenders: list[str] = []
     for path in _py_files("tests"):
-        rel = str(path.relative_to(REPO_ROOT))
+        # posix-normalized so the conftest allowlist entry matches on
+        # Windows too (str(WindowsPath) uses backslashes).
+        rel = path.relative_to(REPO_ROOT).as_posix()
         if rel == "tests/conftest.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))

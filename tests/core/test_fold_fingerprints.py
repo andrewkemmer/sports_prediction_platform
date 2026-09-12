@@ -1,16 +1,20 @@
 """Permanent evidence test: fold fingerprints match the pinned incumbents.
 
-Recomputes each sport's walk-forward fold fingerprint from the REAL stores
-and the per-sport study configuration, and compares EXACTLY against the
-reviewed in-module constants below (MLB 48, NBA 272, NFL 124, NHL 39
-folds). Fold identity covers per-fold train/val row counts and the SHA256
-of the ordered train/val game IDs — the same fingerprint definition used
-to prove Phase 7.5 behavior neutrality.
+Recomputes each sport's walk-forward fold fingerprint from the committed
+bounded raw fixtures (materialized into the gitignored store by
+``tests/raw_store_fixtures.py``) and the per-sport study configuration, and
+compares EXACTLY against the reviewed in-module constants below (MLB 10,
+NBA 23, NFL 54, NHL 23 folds). Fold identity covers per-fold train/val row counts
+and the SHA256 of the ordered train/val game IDs — the same fingerprint
+definition used to prove Phase 7.5 behavior neutrality.
 
-The expected values were captured during the Phase 7.5 remediation against
-the real stores, reviewed, and frozen here as constants. They are never
-regenerated, overwritten, or exported. Any change that shifts fold
-geometry, row membership, or chronology fails here.
+The expected values were re-baselined during the Phase 7.5e-A rebaseline
+against ``tests/fixtures/raw_store/*.parquet``, reviewed, and frozen here as
+constants. The ORIGINAL Phase 7.5 capture values (from a frozen external
+store that never entered the repository) are recorded in docs/TRACKER.md
+for provenance. These constants are never regenerated, overwritten, or
+exported; any change that shifts fold geometry, row membership, or
+chronology fails here.
 """
 
 from __future__ import annotations
@@ -32,18 +36,25 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+
+@pytest.fixture(autouse=True)
+def _raw_store(raw_store):
+    """Run every fold-fingerprint test against the committed raw fixtures."""
+    return raw_store
+
+
 # ---------------------------------------------------------------------------
 # REVIEWED INCUMBENT CONSTANTS (frozen; never regenerate or export)
 # ---------------------------------------------------------------------------
-# Per-sport fold counts.
-EXPECTED_FOLD_COUNTS = {"mlb": 48, "nba": 272, "nfl": 124, "nhl": 39}
+# Per-sport fold counts (Phase 7.5e-A rebaseline; see docs/TRACKER.md).
+EXPECTED_FOLD_COUNTS = {"mlb": 10, "nba": 23, "nfl": 54, "nhl": 23}
 
 # Fingerprint payload hash: SHA256 over the canonical JSON serialization
 # (sort_keys=True) of {sport: [[n_train, n_val, train_ids_sha,
 # val_ids_sha], ...]} with sports in sorted order — the ordered per-fold
 # signature recomputed below.
 EXPECTED_FINGERPRINT_PAYLOAD_SHA256 = (
-    "28466aff3bd764160ce783a0de6d2784b689c4d1db68d8825acc95e1aac6e9b7"
+    "b5a571c843104d6e02ff1d512eff7fd5d8516a07fb19b6d3ea9dffd11eed92bf"
 )
 
 
@@ -188,3 +199,31 @@ def test_full_fingerprint_payload_matches_pinned_incumbent() -> None:
         json.dumps(payload, sort_keys=True).encode()).hexdigest()
     assert digest == EXPECTED_FINGERPRINT_PAYLOAD_SHA256, (
         "full fold-fingerprint payload drifted from the pinned incumbent")
+
+
+@pytest.mark.parametrize("sport", sorted(EXPECTED_FOLD_COUNTS))
+def test_committed_raw_fixture_matches_generator(
+        sport: str, tmp_path: Path) -> None:
+    """Provenance: each committed bounded raw fixture is EXACTLY what the
+    reviewed ``evidence_frame()`` generator in its support module produces.
+
+    The two are deliberately redundant: the committed Parquet freezes the
+    bytes the pinned fold/matrix evidence is computed from, while this test
+    proves those bytes stay reproducible from repository-controlled code.
+    Both sides are compared after an identical Parquet round-trip (so a
+    Python-level ``None`` vs ``NaN`` representation never masks a real
+    difference). The committed fixture itself is never rewritten here.
+    """
+    from tests import mlb_fixtures, nba_fixtures, nfl_fixtures, nhl_fixtures
+    from tests.raw_store_fixtures import fixture_frame
+
+    generator = {
+        "mlb": mlb_fixtures.evidence_frame,
+        "nba": nba_fixtures.evidence_frame,
+        "nfl": nfl_fixtures.evidence_frame,
+        "nhl": nhl_fixtures.evidence_frame,
+    }[sport]
+    regenerated = tmp_path / f"{sport}.parquet"
+    generator().to_parquet(regenerated, index=False)
+    pd.testing.assert_frame_equal(
+        pd.read_parquet(regenerated), fixture_frame(sport))

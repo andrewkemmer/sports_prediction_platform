@@ -1,19 +1,23 @@
 """Permanent evidence test: feature-matrix hashes match pinned incumbents.
 
 Recomputes all 8 scope feature-matrix hashes (4 sports x moneyline/market)
-from the REAL stores using each scope's versioned contract column order,
-and compares EXACTLY against the reviewed in-module constants below.
+from the committed bounded raw fixtures (materialized into the gitignored
+store by ``tests/raw_store_fixtures.py``) using each scope's versioned
+contract column order, and compares EXACTLY against the reviewed in-module
+constants below.
 
 Canonical hash definition (frozen with the original capture):
 fixed row order (game-id mergesort), the scope's exact feature-column
 order, float64 values with NaN preserved via a NaN-mask + zero-filled
 body, SHA256 over (mask bytes || body bytes || repr(cols)).
 
-The expected values were captured during the Phase 7.5 remediation against
-the real stores, reviewed, and frozen here as constants. They are never
-regenerated, overwritten, or exported. These tests are the durable
-neutrality proof: any change to feature content, column order, or matrix
-width for any scope fails here.
+The expected values were re-baselined during the Phase 7.5e-A rebaseline
+against ``tests/fixtures/raw_store/*.parquet``, reviewed, and frozen here as
+constants. The ORIGINAL Phase 7.5 capture values (from a frozen external
+store that never entered the repository) are recorded in docs/TRACKER.md
+for provenance. They are never regenerated, overwritten, or exported. These
+tests are the durable neutrality proof: any change to feature content,
+column order, or matrix width for any scope fails here.
 """
 
 from __future__ import annotations
@@ -35,25 +39,33 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+
+@pytest.fixture(autouse=True)
+def _raw_store(raw_store):
+    """Run every matrix-hash test against the committed raw fixtures."""
+    return raw_store
+
+
 # ---------------------------------------------------------------------------
 # REVIEWED INCUMBENT CONSTANTS (frozen; never regenerate or export)
+# Phase 7.5e-A rebaseline — see docs/TRACKER.md for the original values.
 # ---------------------------------------------------------------------------
 EXPECTED_MATRIX_HASHES: dict[str, dict[str, str]] = {
     "mlb": {
-        "moneyline": "3b6962f300932b98893f5276cf63a93862c619251f811898dd940c178c32dc2f",
-        "market": "9ddfc57aa896e43482b8ff6b36a00888f04395dfa11807187679008e67b1be68",
+        "moneyline": "c9378dd21ff5fbce59416da39de676b3721fec19e853f541280e615b469fb133",
+        "market": "b18eed799cc2ed17ceefcd886d42a2f1840cd580a47f5b242565e1ffe432f49b",
     },
     "nba": {
-        "moneyline": "c333e30852276d3015c0d77826c3e934de48f02a3e495a11190d26f99ecaa34d",
-        "market": "c333e30852276d3015c0d77826c3e934de48f02a3e495a11190d26f99ecaa34d",
+        "moneyline": "f99a7bd6c7ad1b9718b768cdb0aa013cc15ec34d5531fba80eaeac03e9f4cd51",
+        "market": "f99a7bd6c7ad1b9718b768cdb0aa013cc15ec34d5531fba80eaeac03e9f4cd51",
     },
     "nfl": {
-        "moneyline": "8f860e483a27617f9080e4c01f0ee5a16d14023edf4bde6c1907a70b9647b545",
-        "market": "8f860e483a27617f9080e4c01f0ee5a16d14023edf4bde6c1907a70b9647b545",
+        "moneyline": "b22565667e2d4b91e93b29bfd9801a55128cb76871730a989560a0ca22ad996d",
+        "market": "b22565667e2d4b91e93b29bfd9801a55128cb76871730a989560a0ca22ad996d",
     },
     "nhl": {
-        "moneyline": "3f8c0fef4d1dfa1063748e710d99c11edeb62f10bd7ad29abe0cf0a64dba16c0",
-        "market": "3f8c0fef4d1dfa1063748e710d99c11edeb62f10bd7ad29abe0cf0a64dba16c0",
+        "moneyline": "32a1d1ef8da19414330f10a027ac0dd726659e2002c6f53af1beb8c5b90e3470",
+        "market": "32a1d1ef8da19414330f10a027ac0dd726659e2002c6f53af1beb8c5b90e3470",
     },
 }
 

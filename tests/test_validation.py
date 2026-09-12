@@ -87,8 +87,12 @@ def test_stable_json_handles_paths_dataclasses_tuples():
         x: int
         p: Path
 
-    s = stable_json(D(x=1, p=Path("/tmp")))
-    assert "/tmp" in s
+    p = Path("/tmp")
+    s = stable_json(D(x=1, p=p))
+    # Platform-neutral: the path is embedded in its JSON-escaped string form
+    # (POSIX ``/tmp``; Windows ``\\tmp``). Compare against the same encoder's
+    # rendering rather than hard-coding a POSIX literal.
+    assert stable_json(str(p))[1:-1] in s
 
 
 def test_sha256_and_determinism():

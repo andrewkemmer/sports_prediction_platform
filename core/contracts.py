@@ -104,6 +104,53 @@ class FeatureContract:
 
 
 # ---------------------------------------------------------------------------
+# Declared-contract <-> registry-metadata validation (shared interface)
+# ---------------------------------------------------------------------------
+# Sports declare their served columns as explicit contract tuples and keep
+# the per-feature metadata in whatever model their registry already uses
+# (MLB: ``FeatureEntry`` records; NFL/NHL/NBA: their ``_SPEC_DEFS`` mapping).
+# These two checks are deliberately name-only so no sport is forced onto a
+# parallel registry, and they are bidirectional so a declared column can
+# never ship undocumented and a metadata entry can never become dead.
+
+
+class FeatureContractError(ValueError):
+    """Raised when declared contract tuples and registry metadata drift."""
+
+
+def validate_columns_have_metadata(
+        sport: str, scope: str, columns, metadata_names) -> None:
+    """Every declared contract column must have registry metadata.
+
+    A declared-but-undocumented column is a production defect: the pipeline
+    would serve a feature with no ``features_metadata`` entry (the
+    dashboard's tooltip source). Fails loud rather than tolerating drift.
+    """
+    documented = set(metadata_names)
+    missing = [c for c in columns if c not in documented]
+    if missing:
+        raise FeatureContractError(
+            f"{sport}/{scope}: declared columns missing registry metadata: "
+            f"{missing}")
+
+
+def validate_metadata_is_reachable(
+        sport: str, metadata_names, declared_columns) -> None:
+    """Every registry metadata entry must be claimed by a declared tuple.
+
+    Undeclared metadata is a parallel, dead registry: it documents a feature
+    no declared contract serves. Fails loud so the registry and the declared
+    tuples cannot drift apart.
+    """
+    declared = set(declared_columns)
+    orphans = sorted(set(metadata_names) - declared)
+    if orphans:
+        raise FeatureContractError(
+            f"{sport}: registry metadata not reachable from any declared "
+            f"contract tuple: {orphans}")
+
+
+# ---------------------------------------------------------------------------
 # Artifact contract
 # ---------------------------------------------------------------------------
 

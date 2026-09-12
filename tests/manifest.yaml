@@ -59,6 +59,14 @@ fixtures_data:
   - tests/fixtures/sample_artifacts/nba/nba_run_engine_markets_20270105.meta.json
   - tests/fixtures/sample_artifacts/nba/nba_run_engine_monitor_20270105.json
   - tests/fixtures/sample_artifacts/nba/nba_shap_game_20270105_0022600001.csv
+  # Bounded committed raw datasets backing the permanent fold/matrix evidence
+  # tests (Phase 7.5e-A rebaseline). One compact Parquet per sport; read-only
+  # inputs for tests/raw_store.py, reproducible from the per-sport support
+  # modules' evidence_frame() builders.
+  - tests/fixtures/raw_store/mlb.parquet
+  - tests/fixtures/raw_store/nba.parquet
+  - tests/fixtures/raw_store/nfl.parquet
+  - tests/fixtures/raw_store/nhl.parquet
 
 files:
   # --- package plumbing ---
@@ -87,14 +95,16 @@ files:
   - path: tests/core/test_fold_fingerprints.py
     class: production
     description: >
-      Fold fingerprints recomputed per sport against pinned in-module
-      incumbents (MLB 48, NBA 272, NFL 124, NHL 39; payload hash pinned).
+      Fold fingerprints recomputed per sport from the committed bounded raw
+      fixtures against pinned in-module incumbents (MLB 10, NBA 23, NFL 54,
+      NHL 23; payload hash pinned); also proves the committed fixtures still
+      match their generators.
     topics: [fold_determinism]
   - path: tests/core/test_matrix_hashes.py
     class: production
     description: >
-      All 8 scope feature-matrix hashes recomputed against pinned
-      in-module incumbents.
+      All 8 scope feature-matrix hashes recomputed from the committed bounded
+      raw fixtures against pinned in-module incumbents.
     topics: [feature_contract_validation]
 
   # --- sport fixture/support modules ---
@@ -113,6 +123,12 @@ files:
   - path: tests/nhl_fixtures.py
     class: support
     description: NHL synthetic game/store fixtures
+    topics: []
+  - path: tests/raw_store_fixtures.py
+    class: support
+    description: >
+      Materializes the committed bounded raw fixtures into the gitignored
+      store (idempotent, never clobbers).
     topics: []
 
   # --- core production-contract tests ---

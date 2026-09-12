@@ -11,10 +11,13 @@ from core.contracts import (
     ArtifactContract,
     ArtifactFamily,
     FeatureContract,
+    FeatureContractError,
     FeatureSpec,
     ParticipantBox,
     default_artifact_contract,
     load_artifact_contract,
+    validate_columns_have_metadata,
+    validate_metadata_is_reachable,
 )
 from core.record_validation import (
     EXPECTED_REGISTRY_SIZE,
@@ -56,6 +59,22 @@ def test_feature_metadata_json_shape():
     assert meta["features"]["is_home"]["members"] == ["xgboost"]
     assert meta["warnings"] == []
     assert "categorical_context" in meta
+
+
+def test_validate_declared_contracts_against_metadata():
+    """The shared interface fails loud in BOTH directions: a declared
+    column without metadata, and metadata no declared tuple serves."""
+    # passing cases
+    validate_columns_have_metadata("sport", "moneyline", ("a", "b"),
+                                   {"a", "b"})
+    validate_metadata_is_reachable("sport", {"a", "b"}, {"a", "b", "c"})
+    # declared-but-undocumented column
+    with pytest.raises(FeatureContractError, match="missing registry"):
+        validate_columns_have_metadata("sport", "moneyline", ("a", "c"),
+                                       {"a", "b"})
+    # orphan metadata (parallel/dead registry)
+    with pytest.raises(FeatureContractError, match="not reachable"):
+        validate_metadata_is_reachable("sport", {"a", "b"}, {"a"})
 
 
 def test_artifact_family_date_parsing():

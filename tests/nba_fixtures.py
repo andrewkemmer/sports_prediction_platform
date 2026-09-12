@@ -75,6 +75,27 @@ def make_schedule(start_season: int = 2015, n_seasons: int = 2,
     return out.reset_index(drop=True)
 
 
+# ---------------------------------------------------------------------------
+# Permanent evidence fixture (Phase 7.5e-A rebaseline)
+# ---------------------------------------------------------------------------
+#: Deterministic bounded raw dataset backing the committed
+#: ``tests/fixtures/evidence/nba.parquet`` consumed by the permanent
+#: fold/matrix evidence tests.
+EVIDENCE_START_SEASON = 2015
+EVIDENCE_SEASONS = 3
+EVIDENCE_WEEKS = 12
+
+
+def evidence_frame() -> pd.DataFrame:
+    """Regenerate the committed NBA evidence fixture deterministically.
+
+    Tests LOAD ``tests/fixtures/evidence/nba.parquet`` and never call this
+    to overwrite it; it exists for reviewed rebaselines only.
+    """
+    return make_schedule(EVIDENCE_START_SEASON, EVIDENCE_SEASONS,
+                         EVIDENCE_WEEKS)
+
+
 def make_player_cache(schedule: pd.DataFrame) -> pd.DataFrame:
     """Synthetic player rows: a stable high-scorer per team per decided
     game with realistic points/assists."""

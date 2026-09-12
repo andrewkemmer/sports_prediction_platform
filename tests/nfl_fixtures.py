@@ -136,6 +136,34 @@ def cache_only_loader(cache_dir, kind: str):
     return load
 
 
+# ---------------------------------------------------------------------------
+# Permanent evidence fixture (Phase 7.5e-A rebaseline)
+# ---------------------------------------------------------------------------
+#: Deterministic bounded raw dataset backing the committed
+#: ``tests/fixtures/evidence/nfl.parquet`` (schedules + pbp in one frame,
+#: discriminated by the ``__kind`` column) consumed by the permanent
+#: fold/matrix evidence tests.
+EVIDENCE_START_SEASON = 2018
+EVIDENCE_SEASONS = 10
+EVIDENCE_WEEKS = 6
+
+
+def evidence_frame() -> pd.DataFrame:
+    """Regenerate the committed NFL evidence fixture deterministically.
+
+    One compact frame carries both raw families (``__kind`` in
+    {``schedules``, ``pbp``}); the evidence-store materializer splits it
+    back into the per-season store files. Tests LOAD the committed parquet
+    and never call this to overwrite it.
+    """
+    sched = make_schedule(EVIDENCE_START_SEASON, EVIDENCE_SEASONS,
+                          EVIDENCE_WEEKS).assign(__kind="schedules")
+    pbp = make_pbp(sched).assign(__kind="pbp")
+    pbp["season"] = pbp["game_id"].map(
+        dict(zip(sched["game_id"], sched["season"])))
+    return pd.concat([sched, pbp], ignore_index=True)
+
+
 def make_venue_csv(tmp_path) -> str:
     """Minimal stadiums table covering the fixture teams."""
     rows = []

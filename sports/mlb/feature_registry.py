@@ -25,7 +25,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.contracts import FeatureContract, FeatureSpec
+from core.contracts import (
+    FeatureContract,
+    FeatureSpec,
+    validate_columns_have_metadata,
+    validate_metadata_is_reachable,
+)
 from core.validation import ValidationError, require_columns
 
 
@@ -144,6 +149,10 @@ class FeatureEntry:
     direction: str
     members: tuple[str, ...] = ()
     tooltip: str = ""
+    #: Contract tuples this entry belongs to. Defaults to the moneyline
+    #: view; the run-engine-only diffs are marked ``{"market"}`` and are
+    #: excluded from ``build_feature_contract`` (which stays moneyline-only).
+    contracts: frozenset[str] = frozenset({"moneyline"})
 
 
 def _spec(e: FeatureEntry) -> FeatureSpec:
@@ -452,6 +461,27 @@ _REGISTRY: tuple[FeatureEntry, ...] = (
         "Platoon-adjusted fastball strikeout-rate gap",
         "candidate E (platoon K, fastball)", "statcast", "season-to-date",
         "rate", "n/a", members=("exp2",)),
+    # ------------------------------------------------------------------
+    # Run-engine-only diffs: declared in MARKET_FEATURE_COLS but NOT in the
+    # moneyline contract. Metadata mirrors the production derivations in
+    # ``_DIFF_INPUTS`` (raw inputs) and the sibling ``sp_k9_*`` /
+    # ``sp_xwoba_*`` registry entries above — never an invented placeholder.
+    # ------------------------------------------------------------------
+    FeatureEntry(
+        "sp_k9_diff", "SP season K/9 gap",
+        "Home starter season-to-date K/9 minus away",
+        "sp_k9_home - sp_k9_away", "statcast", "season-to-date",
+        "k9", "positive", contracts=frozenset({"market"})),
+    FeatureEntry(
+        "sp_k9_5g_diff", "SP last-5-start K/9 gap",
+        "Home starter last-5-start K/9 minus away",
+        "sp_k9_5g_home - sp_k9_5g_away", "statcast", "5 starts",
+        "k9", "positive", contracts=frozenset({"market"})),
+    FeatureEntry(
+        "sp_xwoba_diff", "SP xwOBA-allowed gap (30g)",
+        "Home starter trailing-30-game xwOBA allowed minus away",
+        "sp_xwoba_home - sp_xwoba_away", "statcast", "30 games",
+        "wOBA", "negative", contracts=frozenset({"market"})),
 )
 
 
@@ -469,25 +499,51 @@ def build_feature_contract(
     """Build the shared FeatureContract from the MLB registry.
 
     Defaults to the ACTIVE v75 moneyline contract version — no active
-    builder defaults to a legacy version string."""
+    builder defaults to a legacy version string. Moneyline-only: entries
+    marked ``contracts={"market"}`` are excluded, so the contract stays the
+    frozen 64-feature moneyline view."""
+    validate_registry()
     return FeatureContract(
         sport="mlb", version=version,
-        features=tuple(_spec(e) for e in _REGISTRY))
+        features=tuple(_spec(e) for e in _REGISTRY
+                       if "moneyline" in e.contracts))
 
 
 def validate_registry() -> None:
-    """Every MONEYLINE_FEATURE_COLS member must be declared in the registry (and vice
-    versa: the registry must not declare names outside the moneyline contract).
-    Raises FeatureRegistryError on drift."""
+    """Validate both declared contract tuples against the registry metadata.
+
+    Uses the shared, name-only interface from ``core.contracts`` for the
+    coverage (every declared column has metadata) and anti-orphan (every
+    metadata entry is claimed by a declared tuple) checks; the
+    moneyline-view identity and the market-only marking are MLB-specific.
+    Raises on drift; never silently accepts a missing or parallel entry."""
     declared = {e.name for e in _REGISTRY}
-    missing = [f for f in MONEYLINE_FEATURE_COLS if f not in declared]
-    if missing:
+    moneyline_marked = {e.name for e in _REGISTRY
+                        if "moneyline" in e.contracts}
+    # (1) every declared contract column has registry metadata.
+    validate_columns_have_metadata(
+        "mlb", "moneyline", MONEYLINE_FEATURE_COLS, declared)
+    validate_columns_have_metadata(
+        "mlb", "market", MARKET_FEATURE_COLS, declared)
+    # (2) no orphan metadata: every entry is claimed by a declared tuple.
+    validate_metadata_is_reachable(
+        "mlb", declared,
+        set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
+    # (3) the moneyline-marked entries are EXACTLY the moneyline view.
+    if moneyline_marked != set(MONEYLINE_FEATURE_COLS):
         raise FeatureRegistryError(
-            f"MONEYLINE_FEATURE_COLS members missing from the registry: {missing}")
-    extra = sorted(declared - set(MONEYLINE_FEATURE_COLS))
-    if extra:
-        raise FeatureRegistryError(
-            f"registry declares names outside MONEYLINE_FEATURE_COLS: {extra}")
+            "moneyline-contract entries != MONEYLINE_FEATURE_COLS: "
+            f"missing={sorted(set(MONEYLINE_FEATURE_COLS) - moneyline_marked)} "
+            f"extra={sorted(moneyline_marked - set(MONEYLINE_FEATURE_COLS))}")
+    # (4) every non-moneyline entry is a market view member, never served
+    # in the moneyline contract.
+    for e in _REGISTRY:
+        if "moneyline" in e.contracts:
+            continue
+        if e.name in MONEYLINE_FEATURE_COLS or e.name not in MARKET_FEATURE_COLS:
+            raise FeatureRegistryError(
+                f"non-moneyline registry entry {e.name!r} must be in "
+                f"MARKET_FEATURE_COLS and absent from MONEYLINE_FEATURE_COLS")
 
 
 # ---------------------------------------------------------------------------

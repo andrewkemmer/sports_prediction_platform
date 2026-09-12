@@ -21,7 +21,12 @@ import logging
 import numpy as np
 import pandas as pd
 
-from core.contracts import FeatureContract, FeatureSpec
+from core.contracts import (
+    FeatureContract,
+    FeatureSpec,
+    validate_columns_have_metadata,
+    validate_metadata_is_reachable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,8 +146,33 @@ _SPEC_DEFS: dict[str, dict[str, str]] = {
 }
 
 
-def build_feature_contract() -> FeatureContract:
-    """The NBA feature contract from the frozen registry."""
+def validate_registry() -> None:
+    """Validate both declared contract tuples against the registry metadata.
+
+    NBA's metadata model is the ``_SPEC_DEFS`` mapping; the shared
+    ``core.contracts`` interface compares names only, so this sport keeps
+    its existing model — no parallel registry is created. Raises on drift:
+    a declared column with no spec, or a spec no declared tuple serves.
+    """
+    metadata = frozenset(_SPEC_DEFS)
+    validate_columns_have_metadata(
+        "nba", "moneyline", MONEYLINE_FEATURE_COLS, metadata)
+    validate_columns_have_metadata(
+        "nba", "market", MARKET_FEATURE_COLS, metadata)
+    validate_metadata_is_reachable(
+        "nba", metadata,
+        set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
+
+
+def build_feature_contract(
+        version: str = MONEYLINE_CONTRACT_VERSION) -> FeatureContract:
+    """The NBA feature contract from the frozen registry (moneyline-only).
+
+    ``version`` defaults to the active registry version; callers may pass
+    the active study contract's moneyline version so emitted feature
+    metadata is stamped from the live contract, never a hardcoded literal.
+    """
+    validate_registry()
     specs = []
     for name in FEATURE_COLUMNS:
         d = _SPEC_DEFS[name]
@@ -159,7 +189,7 @@ def build_feature_contract() -> FeatureContract:
                      "mlp"),
             tooltip=d["summary"],
         ))
-    return FeatureContract(sport="nba", version=MONEYLINE_CONTRACT_VERSION,
+    return FeatureContract(sport="nba", version=version,
                            features=tuple(specs))
 
 

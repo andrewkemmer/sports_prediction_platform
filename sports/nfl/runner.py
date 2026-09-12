@@ -337,7 +337,9 @@ def run_nfl_production(
         date_c = run_date
         team_names = load_team_names(cache)
         config_meta = {
-            "feature_set_version": "nfl-prod-v1",
+            # Bound from the ACTIVE study/registry moneyline contract — never
+            # a hardcoded legacy literal (T3: features_metadata writer path).
+            "feature_set_version": study.moneyline_contract_version,
             "warmup_seasons": list(study.warmup_seasons),
             "oof_first_season": study.oof_first_season,
             "retrain_cadence_days": study.walk_forward.step_days,

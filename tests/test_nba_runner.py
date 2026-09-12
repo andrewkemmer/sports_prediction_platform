@@ -255,7 +255,10 @@ class TestRunnerEndToEnd:
         fj = json.loads((sink / f"nba_feature_v1_{date_c}.json").read_text())
         assert list(fj.keys()) == FIXTURE["artifacts"]["feature_json"][
             "keys"]
-        assert fj["feature_set_version"] == "nba-prod-v1"
+        # T3: the emitted feature metadata version is bound from the ACTIVE
+        # registry/study moneyline contract, never a hardcoded literal.
+        from sports.nba.feature_registry import MONEYLINE_CONTRACT_VERSION
+        assert fj["feature_set_version"] == MONEYLINE_CONTRACT_VERSION
 
         ph = pd.read_csv(sink / f"nba_predictions_history_{date_c}.csv")
         assert list(ph.columns) == FIXTURE["artifacts"][
