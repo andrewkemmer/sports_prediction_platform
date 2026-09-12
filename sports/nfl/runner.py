@@ -451,7 +451,7 @@ def run_nfl_production(
             _ensemble_rows(oof_ml, weights, study), [], float(1.0
                                                              - y_oof.mean()),
             config_meta, fold_summary(fold_list), metrics=cal_m,
-            platt=platt)
+            platt=platt, features_metadata=fc_meta)
 
         result.artifacts_written = [p.name for p in written
                                     if isinstance(p, Path)]

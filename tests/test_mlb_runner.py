@@ -8,6 +8,7 @@ successful artifact generation.
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -255,3 +256,150 @@ def test_five_member_stack_all_execute():
             executed.append(name)
     assert set(executed) == set(ENSEMBLE_WEIGHTS), \
         f"missing members: {set(ENSEMBLE_WEIGHTS) - set(executed)}"
+
+
+# ---------------------------------------------------------------------------
+# rolling_brier payload: the persisted series must be COMPUTED, not discarded
+# ---------------------------------------------------------------------------
+
+_MLB_FIXTURE = json.loads(
+    (Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+     / "mlb_artifact_schemas.json").read_text(encoding="utf-8"))
+
+
+def _markets_frame(dates, probs, scores):
+    return pd.DataFrame({
+        "game_pk": [f"g{i}" for i in range(len(dates))],
+        "game_date": dates,
+        "ml_win_prob": probs,
+        "home_score": [s[0] for s in scores],
+        "away_score": [s[1] for s in scores],
+    })
+
+
+def test_rolling_brier_payload_known_value():
+    """KNOWN-VALUE Brier: one day of p=[0.8, 0.6, 0.3] against actual
+    outcomes [1, 0, 1] must give mean((p - y)^2) = 0.29667, i.e. a real float
+    derived from predictions vs outcomes — never a placeholder."""
+    from sports.mlb.runner import _rolling_brier_payload
+    markets = _markets_frame(["2026-09-01"] * 3, [0.8, 0.6, 0.3],
+                             [(5, 3), (2, 4), (7, 1)])
+    payload = _rolling_brier_payload({"markets": markets})
+    expected = ((0.8 - 1.0) ** 2 + (0.6 - 0.0) ** 2
+                + (0.3 - 1.0) ** 2) / 3
+    assert payload["series"] == [{"date": "2026-09-01",
+                                  "brier": round(expected, 5),
+                                  "games": 3}]
+    assert payload["n_points"] == 1
+    assert payload["n_games_total"] == 3
+    assert payload["n_games_in_series"] == 3
+    assert isinstance(payload["history_mean_brier"], float)
+    assert payload["history_mean_brier"] == pytest.approx(round(expected, 5))
+    assert 0.0 <= payload["history_mean_brier"] <= 1.0
+
+
+def test_rolling_brier_payload_multi_day_series_is_real():
+    """Two days, three games: per-day means must be the true Brier values and
+    the series must be date-sorted."""
+    from sports.mlb.runner import _rolling_brier_payload
+    markets = _markets_frame(["2026-09-01", "2026-09-01", "2026-09-02"],
+                             [0.7, 0.4, 0.9],
+                             [(3, 1), (0, 2), (6, 5)])
+    payload = _rolling_brier_payload({"markets": markets})
+    assert payload["series"] == [
+        {"date": "2026-09-01", "brier": 0.125, "games": 2},
+        {"date": "2026-09-02", "brier": 0.01, "games": 1},
+    ]
+    assert payload["history_mean_brier"] == pytest.approx(0.0675)
+    assert payload["n_points"] == 2
+    assert payload["n_games_total"] == 3
+
+
+def test_rolling_brier_payload_excludes_unavailable_rows():
+    """A game with no moneyline probability is EXCLUDED from the series, not
+    fabricated as a 0.0/0.5 guess."""
+    from sports.mlb.runner import _rolling_brier_payload
+    markets = _markets_frame(["2026-09-01"] * 3, [0.8, np.nan, 0.2],
+                             [(1, 0), (2, 1), (0, 3)])
+    payload = _rolling_brier_payload({"markets": markets})
+    assert payload["series"] == [{"date": "2026-09-01", "brier": 0.04,
+                                  "games": 2}]
+    assert payload["n_games_total"] == 2
+
+
+def test_rolling_brier_payload_preserves_contract_keys_and_order():
+    """The schema the fixture pins is unchanged: same 12 keys, same order."""
+    from sports.mlb.runner import _rolling_brier_payload
+    keys = _MLB_FIXTURE["artifacts"]["rolling_brier"]["keys"]
+    payload = _rolling_brier_payload(
+        {"markets": _markets_frame(["2026-09-01"], [0.5], [(1, 0)])})
+    assert list(payload) == keys
+    assert set(payload) == set(keys)
+
+
+def test_rolling_brier_payload_empty_markets_is_contract_shaped():
+    """With no decided rows the payload is empty but still contract-shaped;
+    history_mean_brier is null only here (the one contract-nullable key)."""
+    from sports.mlb.runner import _rolling_brier_payload
+    keys = _MLB_FIXTURE["artifacts"]["rolling_brier"]["keys"]
+    payload = _rolling_brier_payload({"markets": pd.DataFrame()})
+    assert list(payload) == keys
+    assert payload["series"] == []
+    assert payload["n_points"] == 0
+    assert payload["n_games_total"] == 0
+    assert payload["n_games_in_series"] == 0
+    assert payload["history_mean_brier"] is None
+
+
+def test_rolling_brier_uses_moneyline_semantics_not_the_totals_helper():
+    """rolling_brier is contractually a MONEYLINE artifact. It must score
+    ``home_win_prob_model`` (carried as ``ml_win_prob``) against settled
+    ``home_score > away_score`` results — and must NOT accidentally consume
+    the run engine's ``compute_rolling_totals_brier``, which scores the
+    OVER/UNDER TOTALS market (``p_over_9_0`` vs ``total_runs >= 9.5``).
+    Wiring that helper here would be a market-semantics regression."""
+    import sports.mlb.run_engine as run_engine
+    from sports.mlb.runner import _rolling_brier_payload
+
+    # A day where the two markets DISAGREE, so the returned value identifies
+    # which semantics were used. Totals column is wrong on both games.
+    markets = pd.DataFrame({
+        "game_pk": ["a", "b"],
+        "game_date": ["2026-09-01", "2026-09-01"],
+        "ml_win_prob": [0.8, 0.2],
+        "p_over_9_0": [0.0, 1.0],
+        "home_score": [1, 0],
+        "away_score": [0, 3],
+        "total_runs": [1, 3],
+    })
+    # The totals helper is a DIFFERENT market (over/under) and is currently
+    # defective as well as unwired: it builds ``brier_by_day`` as a numpy
+    # ndarray and then indexes it with ``.loc``. Pinning that defect keeps a
+    # future "just wire it up" change from looking harmless.
+    with pytest.raises(AttributeError, match="loc"):
+        run_engine.compute_rolling_totals_brier(markets)
+
+    payload = _rolling_brier_payload({"markets": markets})
+    assert payload["source_column"] == "home_win_prob_model"
+    # moneyline: ((0.8-1)^2 + (0.2-0)^2) / 2 = 0.04
+    assert payload["series"] == [{"date": "2026-09-01", "brier": 0.04,
+                                  "games": 2}]
+    assert payload["history_mean_brier"] == pytest.approx(0.04)
+    # (If the totals market WERE scored here the same day would read 0.5:
+    # p_over=[0.0, 1.0] against total_runs=[1, 3] -> y_over=[0, 0].)
+    assert payload["history_mean_brier"] != pytest.approx(0.5)
+
+    # The totals column is irrelevant to this artifact: removing it, and
+    # removing the totals helper entirely, cannot change the payload.
+    assert _rolling_brier_payload(
+        {"markets": markets.drop(columns=["p_over_9_0"])}) == payload
+
+    def _tripwire(*_a, **_k):
+        raise AssertionError(
+            "rolling_brier must not consume the totals-market helper")
+    original = run_engine.compute_rolling_totals_brier
+    run_engine.compute_rolling_totals_brier = _tripwire
+    try:
+        assert _rolling_brier_payload({"markets": markets}) == payload
+    finally:
+        run_engine.compute_rolling_totals_brier = original

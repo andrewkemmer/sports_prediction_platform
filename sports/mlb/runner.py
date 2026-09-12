@@ -30,6 +30,7 @@ import pandas as pd
 
 from core.config import PlatformConfig, default_config
 from core.markets import FULL_GAME_NO_TIE
+from core.oof import brier_score
 from core.prediction_window import resolve_prediction_window
 from core.validation.future_availability import (
     validate_available_at,
@@ -470,19 +471,87 @@ def _model_monitor_payload(moneyline: dict, study) -> dict:
 
 
 def _rolling_brier_payload(markets_v3: dict) -> dict:
+    """League-wide rolling moneyline Brier from THIS run's decided OOF games.
+
+    The series is the artifact contract's own series: ``source_column`` names
+    ``home_win_prob_model`` (the moneyline probability, carried on the markets
+    frame as ``ml_win_prob``) scored against the settled
+    ``home_score > away_score`` outcome, one point per calendar day. The
+    per-day value is the canonical Brier formula (mean squared error between
+    predicted probability and actual outcome — ``core.oof.brier_score``), the
+    same one MLB's run-engine scoring uses.
+
+    Games whose moneyline probability or final score is unavailable are
+    EXCLUDED from the series (never fabricated as 0.0/0.5); days left with
+    fewer than ``min_games_per_day`` usable games are counted in
+    ``excluded_sparse_days``. ``history_mean_brier`` is null only when no day
+    qualified — it is a contract-nullable field, not a placeholder.
+
+    Pre-7.5e this helper took ``markets_v3`` and ignored it entirely,
+    returning a hardcoded ``n_points=0`` / ``series=[]`` payload, so every
+    persisted ``rolling_brier_<date>.json`` reported an empty series even on
+    runs with hundreds of settled OOF games. The signature is unchanged
+    (the markets frame carries both the probability and the outcome).
+
+    SEMANTICS — this artifact is MONEYLINE, not totals:
+
+    * probabilities come from the moneyline model's ``home_win_prob_model``
+      column (carried on the markets frame as ``ml_win_prob``);
+    * outcomes come from settled results, ``home_score > away_score``;
+    * scoring uses the canonical ``core.oof.brier_score``
+      (``mean((p - y) ** 2)``), the same formula MLB's run-engine scoring
+      and ``core/optimization/metrics.py`` use;
+    * unavailable or non-finite (NaN) probability/outcome rows are EXCLUDED
+      — never imputed or fabricated;
+    * the existing ``rolling_brier`` schema, keys, order, and dtypes are
+      preserved exactly.
+
+    DELIBERATELY NOT WIRED: ``sports/mlb/run_engine.py::
+    compute_rolling_totals_brier`` scores a DIFFERENT market — the OVER/UNDER
+    TOTALS series (``p_over_9_0`` against ``total_runs >= 9.5``). Consuming it
+    here would repoint a moneyline artifact at a totals market and is a
+    market-semantics regression, so it stays unwired dead code and is
+    deferred as separate follow-up work (no blocker ID is created for it).
+    """
+    window_days = 30
+    min_games_per_day = 1
+    series: list[dict] = []
+    excluded = 0
+    markets = markets_v3.get("markets")
+    if markets is not None and not markets.empty:
+        required = ("ml_win_prob", "home_score", "away_score", "game_date")
+        if set(required) <= set(markets.columns):
+            usable = markets.dropna(subset=list(required)).copy()
+            usable["_day"] = pd.to_datetime(usable["game_date"]).dt.date
+            usable["_y_home_win"] = (
+                usable["home_score"] > usable["away_score"]).astype(float)
+            for day, grp in usable.groupby("_day"):
+                if len(grp) < min_games_per_day:
+                    excluded += 1
+                    continue
+                series.append({
+                    "date": str(day),
+                    "brier": round(float(brier_score(
+                        [float(v) for v in grp["ml_win_prob"]],
+                        [float(v) for v in grp["_y_home_win"]])), 5),
+                    "games": int(len(grp)),
+                })
+            series.sort(key=lambda r: r["date"])
+    n_games = int(sum(r["games"] for r in series))
     return {
-        "window_days": 30,
-        "min_games_per_day": 1,
+        "window_days": window_days,
+        "min_games_per_day": min_games_per_day,
         "source_column": "home_win_prob_model",
         "calibration": "prequential",
         "map_scope_note": "league-wide rolling brier",
         "calibrator_is_identity": False,
-        "n_points": 0,
-        "n_games_total": 0,
-        "excluded_sparse_days": 0,
-        "history_mean_brier": None,
-        "series": [],
-        "n_games_in_series": 0,
+        "n_points": len(series),
+        "n_games_total": n_games,
+        "excluded_sparse_days": excluded,
+        "history_mean_brier": (round(float(np.mean(
+            [r["brier"] for r in series])), 5) if series else None),
+        "series": series,
+        "n_games_in_series": n_games,
     }
 
 

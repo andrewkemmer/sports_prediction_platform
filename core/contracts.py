@@ -150,6 +150,72 @@ def validate_metadata_is_reachable(
             f"contract tuple: {orphans}")
 
 
+#: The per-feature field set of ``FeatureSpec`` — the shape every
+#: ``features_metadata`` document must carry, one entry per cataloged
+#: feature. Kept next to the dataclass it mirrors so the two cannot drift.
+FEATURE_SPEC_FIELDS: tuple[str, ...] = ("name", "summary", "definition",
+                                        "formula", "source", "window",
+                                        "units", "direction", "members",
+                                        "tooltip")
+
+
+class FeaturesMetadataError(ValueError):
+    """Raised when a sport is about to write a non-canonical metadata doc."""
+
+
+def require_features_metadata(sport: str, payload) -> dict:
+    """Validate a canonical ``features_metadata`` document pre-write.
+
+    ``payload`` is the document ``FeatureContract.to_metadata_json`` produces
+    and that every sport's model-monitor writer embeds (and that the durable
+    ``<sport>_features_metadata`` / ``features_metadata`` artifact carries):
+    the wrapper keys plus one entry per cataloged feature, each entry holding
+    the full :data:`FEATURE_SPEC_FIELDS` set. This is the shared interface
+    across all four sports; the per-sport METADATA MODEL is untouched — each
+    registry still owns its own declaration (MLB ``FeatureEntry`` records,
+    NNX ``_SPEC_DEFS``) and only the serialized shape is enforced here.
+
+    Rejects an absent, empty, or partial document rather than writing it. A
+    stub document is indistinguishable from "this sport declares no features"
+    and silently strips the Model Monitor's per-feature metadata, so it is
+    treated as a defect and fails loud before any bytes reach the sink.
+    """
+    if not isinstance(payload, dict):
+        raise FeaturesMetadataError(
+            f"{sport}: features_metadata must be a mapping, got "
+            f"{type(payload).__name__}")
+    for key in ("generated_for", "n_features", "warnings", "features"):
+        if key not in payload:
+            raise FeaturesMetadataError(
+                f"{sport}: features_metadata missing wrapper key {key!r}")
+    features = payload["features"]
+    if not isinstance(features, dict) or not features:
+        raise FeaturesMetadataError(
+            f"{sport}: features_metadata carries no per-feature entries "
+            f"(got {type(features).__name__} with "
+            f"{len(features) if hasattr(features, '__len__') else 'n/a'} "
+            f"entries) — a stub document is never written")
+    expected = set(FEATURE_SPEC_FIELDS)
+    for name, entry in features.items():
+        if not isinstance(entry, dict):
+            raise FeaturesMetadataError(
+                f"{sport}: features_metadata[{name!r}] is not a mapping")
+        missing = sorted(expected - set(entry))
+        if missing:
+            raise FeaturesMetadataError(
+                f"{sport}: features_metadata[{name!r}] missing FeatureSpec "
+                f"fields {missing}")
+        if entry.get("name") != name:
+            raise FeaturesMetadataError(
+                f"{sport}: features_metadata[{name!r}] declares name "
+                f"{entry.get('name')!r}")
+    # NOTE: ``n_features`` is deliberately NOT cross-checked against
+    # ``len(features)``. Sports differ on purpose — MLB serves its moneyline
+    # width while documenting the full catalog — so the wrapper's count is
+    # that sport's own declaration, not a shared invariant.
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # Artifact contract
 # ---------------------------------------------------------------------------

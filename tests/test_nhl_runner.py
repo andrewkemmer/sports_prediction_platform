@@ -429,3 +429,79 @@ def test_persist_shap_game_rejects_missing_columns(tmp_path):
     with pytest.raises((RecordValidationError, Exception), match="missing columns"):
         persist_shap_game(frame, "20261007", "TOR@BOS", out_dir=tmp_path)
     assert not list(tmp_path.glob("nhl_shap_game_*.csv"))
+
+
+# ---------------------------------------------------------------------------
+# Real Brier score (Part 1) — same formula as MLB's canonical brier_score
+# ---------------------------------------------------------------------------
+
+def test_binary_metrics_brier_is_a_known_value():
+    """KNOWN-VALUE Brier: p=[0.8, 0.7] against y=[1, 0] must give
+    mean((p - y)^2) = 0.265 — a real float derived from actual predictions vs
+    actual outcomes, not None and not a placeholder."""
+    from sports.nhl.evaluation import binary_metrics
+    m = binary_metrics([0.8, 0.7], [1.0, 0.0])
+    assert m["n"] == 2
+    assert isinstance(m["brier"], float)
+    assert m["brier"] == pytest.approx(0.265)
+    assert 0.0 <= m["brier"] <= 1.0
+
+
+def test_binary_metrics_brier_is_nan_when_undefined():
+    """A single-class sample has no defined Brier; it must be NaN rather than
+    a fabricated 0.0/0.5 stand-in."""
+    from sports.nhl.evaluation import binary_metrics
+    m = binary_metrics([0.9, 0.8], [1.0, 1.0])
+    assert np.isnan(m["brier"])
+
+
+def test_binary_metrics_brier_ignores_non_finite_pairs():
+    """Non-finite probability/outcome pairs are dropped before scoring, so the
+    Brier is computed only over real decided pairs."""
+    from sports.nhl.evaluation import binary_metrics
+    clean = binary_metrics([0.8, 0.7], [1.0, 0.0])
+    padded = binary_metrics([0.8, np.nan, 0.7], [1.0, 1.0, 0.0])
+    assert padded["n"] == clean["n"] == 2
+    assert padded["brier"] == pytest.approx(clean["brier"])
+
+
+# ---------------------------------------------------------------------------
+# model_monitor.features_metadata: canonical FeatureSpec document (Part 2)
+# ---------------------------------------------------------------------------
+
+def test_model_monitor_features_metadata_is_canonical(tmp_path):
+    """model_monitor.features_metadata must carry one entry per cataloged
+    feature with the full FeatureSpec field set. It used to be an EMPTY dict:
+    the writer derived it from the coverage rows and the only caller passes
+    cov=[]."""
+    from core.contracts import FEATURE_SPEC_FIELDS
+    from sports.nhl.artifacts import write_model_monitor_json
+    from sports.nhl.feature_registry import build_feature_contract
+    meta = build_feature_contract().to_metadata_json("2026-09-01")
+    path = tmp_path / "nhl_model_monitor_20260901.json"
+    record = write_model_monitor_json(path, "20260901", [], [], [], [], 0.5,
+                                      {}, {}, features_metadata=meta)
+    assert record["features_metadata"] == meta
+    features = record["features_metadata"]["features"]
+    assert features, "features_metadata must not be empty"
+    for name, entry in features.items():
+        assert entry["name"] == name
+        assert set(entry) == set(FEATURE_SPEC_FIELDS)
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk["features_metadata"] == meta
+    assert set(on_disk) == set(FIXTURE["artifacts"]["model_monitor"]["keys"])
+
+
+def test_model_monitor_rejects_stub_features_metadata(tmp_path):
+    """A stub/absent document fails loud pre-write — it is indistinguishable
+    from \"this sport declares no features\" and strips the Model Monitor's
+    metadata."""
+    from core.contracts import FeaturesMetadataError
+    from sports.nhl.artifacts import write_model_monitor_json
+    for stub in (None, {}, {"generated_for": "", "n_features": 0,
+                            "warnings": [], "features": {}}):
+        with pytest.raises(FeaturesMetadataError):
+            write_model_monitor_json(
+                tmp_path / "nhl_model_monitor_20260901.json", "20260901",
+                [], [], [], [], 0.5, {}, {}, features_metadata=stub)
+    assert not list(tmp_path.glob("nhl_model_monitor_*.json"))

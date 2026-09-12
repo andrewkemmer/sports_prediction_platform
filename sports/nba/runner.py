@@ -498,7 +498,8 @@ def run_nba_production(
             sink / f"nba_model_monitor_{date_c}.json", date_c, [], [],
             _ensemble_rows(oof_ml, weights, study), [],
             float(1.0 - y_oof.mean()), config_meta,
-            _fold_summary(fold_list), metrics=cal_m, platt=platt)
+            _fold_summary(fold_list), metrics=cal_m, platt=platt,
+            features_metadata=fc_meta)
         written.append(sink / f"nba_model_monitor_{date_c}.json")
 
         result.artifacts_written = [p.name for p in written

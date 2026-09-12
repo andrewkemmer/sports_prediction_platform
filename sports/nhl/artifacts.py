@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from core.contracts import require_features_metadata
 from core.record_validation import validate_record
 from sports.nhl.feature_registry import MONEYLINE_CONTRACT_VERSION
 
@@ -273,8 +274,10 @@ def write_model_monitor_json(path: Path, run_date: str, drift: list[dict],
                              rb: list[dict], baseline: float,
                              config_meta: dict, fold_info: dict,
                              metrics: dict | None = None,
-                             platt: dict | None = None) -> dict:
+                             platt: dict | None = None,
+                             features_metadata: dict | None = None) -> dict:
     """Platform-shaped monitor artifact (fixture: model_monitor)."""
+    require_features_metadata("nhl", features_metadata)
     fx = _fixture()["artifacts"]["model_monitor"]
     iso_date = (f"{run_date[:4]}-{run_date[4:6]}-{run_date[6:8]}"
                 if len(str(run_date)) == 8 and str(run_date).isdigit()
@@ -300,9 +303,13 @@ def write_model_monitor_json(path: Path, run_date: str, drift: list[dict],
         "next_retrain_note": None,
         "upset_note": None,
         "feature_drift": drift,
-        "features_metadata": {r["feature"]: {
-            "definition": "see sports/nhl/feature_registry.py",
-            "source": "NHL Stats API schedules / arena table"} for r in cov},
+        # Canonical feature contract metadata (the same document the
+        # feature_v1 artifact carries): one entry per cataloged feature with
+        # the full FeatureSpec field set, plus the explicit unavailable-column
+        # warnings. This block used to be a stub derived from the coverage
+        # rows -- and the only caller passes cov=[], so the Model Monitor
+        # received an EMPTY features_metadata for every feature.
+        "features_metadata": features_metadata,
         "feature_coverage": cov,
         "ensemble": ensemble,
         "rolling_brier": rb,
