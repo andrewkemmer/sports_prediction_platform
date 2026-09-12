@@ -32,6 +32,7 @@ guardrail-test strict xfails must exist here by ID.
 | 7.6c | Dashboard / data-delivery validation: verify the Streamlit dashboard renders correctly against emitted `sports/<sport>/data_delivery/` artifacts — carried forward as the explicit 7.5e-A scope exclusion (7.5e-A validated contracts, metadata version binding and evidence only) | PENDING |
 | 7.6d | Guardrail enforcement completion: make the sibling legacy alias `FEATURE_COLS` name-discipline actually effective in `tests/core/test_spec_guardrails.py::test_no_bare_feature_contract_usage_in_production_modules` — its `:name:` offenders are currently computed then discarded by the `hard` filter, so declaration/consumption of `FEATURE_COLS` outside the declaring modules is not rejected. Carried forward as the explicit Phase 7.5e-B scope exclusion recorded under **B-010a** (7.5e-B enforced the *retired* `FEATURE_COLUMNS` alias with no exemption and left the still-legitimate frozen-view symbol's exemption set untouched). **No new blocker ID** (standing 7.5e-D instruction: do not create B-011) | PENDING |
 | 7.6e | Market contract builders + metadata wiring — **contingent**: performed **only if the Phase 7.6 conformance audit proves a market-basis contract is actually required**. Carried over from the 7.5e-C scope (which was **not** executed as Phase 7.5 work): (a) the market caller-basis audit and any rebind for `sports/{nfl,nhl,nba}/distributions.py::ScoreRegressor`, which consumes `features.tree_view` — declared **moneyline-basis** by 7.5e-B; (b) the retirement decision for the zero-caller helpers `features.linear_view` / `features.served_diff_columns`, which 7.5e-B preserved and rebound rather than deleted. No `market_contract_version` and no market metadata path were created by any Phase 7.5 sub-phase | PENDING (contingent) |
+| 7.6-A | Repository/documentation conformance (W1–W2): reconcile `README.md` and `pyproject.toml` with the actual repository and the CI-supported Python version, and add the **§22** cross-sport structural-alignment policy with its guardrail test and reviewed exception record (see *Policy changes (§21)*). **No sport module is moved, renamed, rebuilt or deleted in this workstream** | IN PROGRESS — policy + guardrail test landed in the policy commit (below); the README/pyproject reconciliation is its own follow-up commit |
 | 7.5c1 | Tests lockdown: permanent-test governance, closed manifest (`tests/manifest.yaml`), hygiene enforcement (`tests/core/test_manifest_hygiene.py`), duplicate consolidation (test_markets_tie_push → test_markets; test_retention_production → test_retention), CI workflow, GUARDRAILS §16 amendment | EXECUTED — landed in commit `8f97c54`, tag `phase-7.5c1-complete`; CI for this sub-phase **not re-verified here** |
 
 ## Phase 7.5 — CLOSED
@@ -96,6 +97,80 @@ None of these is an unresolved Phase 7.5 item; each is Phase 7.6 scope:
 | `sports/nba/data_delivery_run2/` | NBA certification run 2 | Deleted (7.5c) |
 | `experiments/{run_experiment.py,run_training.py,configs/}` | — | Not yet required; only allowlisted entries permitted (guardrail-enforced) |
 | `tests/fixtures/raw_store/{mlb,nba,nfl,nhl}.parquet` | 7.5e-A (evidence rebaseline) | Permanent committed bounded raw datasets behind the fold/matrix evidence tests; read-only inputs, reproducible from the per-sport `evidence_frame()` generators. Not hash/evidence *output* files — the pins stay in-module static literals |
+
+## Policy changes (§21)
+
+Changing or adding a hardened rule requires a phase plan that names the
+change, the evidence that motivates it, and an updated guardrail test
+(`GUARDRAILS.md` §21). Every such change is recorded here.
+
+### §22 — Cross-sport structural alignment (added by Phase 7.6-A)
+
+- **Change.** `GUARDRAILS.md` gains **§22** (exact text there): shared
+  capabilities across all sports must use consistent ownership, naming,
+  interfaces and lifecycle behavior; sport-specific differences are
+  permitted when required by the sport's data, rules or modeling needs and
+  must be documented in an approved exception record; the rule does **not**
+  require identical files, folders or implementations; and any structural
+  addition, rewrite, relocation or deletion requires a documented
+  requirement, usage/dependency review, acceptance test and validation
+  evidence.
+- **Reason / evidence.** The Phase 7.6 conformance audit at `1f20010` found
+  real per-sport structural drift (table below) that no rule governed.
+  Existing policy constrains only top-level directories (§14) and import
+  direction (§18); nothing defined what cross-sport consistency means or how
+  a legitimate sport-specific difference is recorded, so drift could
+  accumulate with no defect class and no guardrail. Adding the rule first —
+  before any 7.6 structural work — is the §21 requirement.
+- **Scope.** Policy text plus one guardrail test, and nothing else. **No
+  other guardrail is changed**: §14, §15, §16, §18 and §21 are untouched. No
+  production code, no test semantics, no manifest entry, no dependency, no
+  runtime behavior.
+- **Guardrail test (required by §21).**
+  `tests/core/test_spec_guardrails.py::test_sport_structure_matches_the_documented_exception_record`,
+  with the reviewed exception record held as data in that same module — the
+  **authoritative** copy; this prose is a summary and may not contradict it.
+  Demonstrated to fire on five synthetic deviations (undocumented extra
+  module, undocumented shared capability, a record claiming a sport that
+  lacks the module, an open finding silently promoted to `permitted`, and an
+  exception with no reason) and to be silent on the real tree.
+- **The rule does not require identical sport implementations.** The record
+  proves it: it documents permitted differences in both directions. The
+  test's assertion 4 fails if no permitted difference is recorded, so the
+  policy cannot degrade into a demand for identical trees.
+- **Open finding surfaced by the record — NOT blessed as permitted.**
+  `adapter.py`: MLB has no `SportAdapter` implementation while
+  `core/contracts.py` documents `Implementations live in
+  sports/<sport>/adapter.py`. Nothing in production consumes the protocol
+  (only the three NNX adapters exist, used by the NNX runners and their
+  tests), so whether MLB must implement it is **unproven**. Pinned by
+  `SPORT_OPEN_STRUCTURE_FINDINGS` so it cannot vanish or be silently
+  promoted; owner: the Phase 7.6 structure/ownership review (7.6-E / 7.6-G).
+  **No blocker ID was created** (standing instruction).
+
+**Reviewed four-sport structure comparison** (evidence at baseline
+`1f20010`; ✓ = module present):
+
+| Module | mlb | nfl | nhl | nba | Recorded status |
+|---|---|---|---|---|---|
+| `artifacts.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `catalog.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `feature_registry.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `features.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `ingestion.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `optimization.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `runner.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `study_config.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `training.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `adapter.py` | — | ✓ | ✓ | ✓ | **OPEN finding** (MLB gap unproven) |
+| `distributions.py` | — | ✓ | ✓ | ✓ | permitted (NNX margin/totals model) |
+| `evaluation.py` | — | ✓ | ✓ | ✓ | permitted (NNX OOF metrics) |
+| `frames.py` | ✓ | — | — | — | permitted (MLB PIT game frame / run-engine path) |
+| `market_config.py` | ✓ | — | — | — | permitted (MLB market constants) |
+| `run_engine.py` | ✓ | — | — | — | permitted (MLB per-game run distribution) |
+| `qb_enrichment.py` | — | ✓ | — | — | permitted (NFL participant panel) |
+| `goalie_enrichment.py` | — | — | ✓ | — | permitted (NHL participant panel) |
+| `participant_enrichment.py` | — | — | — | ✓ | permitted (NBA participant panel) |
 
 ## Blocker table
 

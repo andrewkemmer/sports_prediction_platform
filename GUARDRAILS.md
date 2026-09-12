@@ -240,6 +240,31 @@ Changing a hardened rule, adding a rule, or closing a blocker requires a
 phase plan that names the change, the evidence that motivates it, and an
 updated guardrail test. Silent edits to this file are void.
 
+## 22. Cross-sport structural alignment
+
+Shared capabilities across all sports must use consistent ownership,
+naming, interfaces, and lifecycle behavior. Sport-specific differences are
+permitted when required by the sport's data, rules, or modeling needs and
+must be documented in an approved exception record. This rule does not
+require identical files, folders, or implementations. Any structural
+addition, rewrite, relocation, or deletion requires a documented
+requirement, usage/dependency review, acceptance test, and validation
+evidence.
+
+**Enforcement.** The reviewed four-sport structure comparison and its
+exception record are data in the guardrail suite
+(`tests/core/test_spec_guardrails.py`): every module a sport carries beyond
+the shared capability set — and every shared capability a sport lacks —
+must be listed there with a status and a reason. Undocumented differences
+fail the suite. A difference recorded with status `open` is **not** blessed
+as permitted; it names the review item that owns it. The record in the
+suite is authoritative; any prose copy elsewhere is a summary and may not
+contradict it.
+
+Added by Phase 7.6-A under the §21 procedure (see `docs/TRACKER.md`):
+the change, its motivating evidence, and its guardrail test landed in one
+reviewable commit before the structural work it governs.
+
 ---
 
 ## Implementation Governance

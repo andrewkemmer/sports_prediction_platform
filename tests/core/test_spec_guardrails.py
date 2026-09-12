@@ -58,6 +58,141 @@ ALLOWED_TOP_LEVEL_DIRS = {
     "sports_prediction_platform.egg-info",  # build metadata, untracked-able
 }
 
+# ---------------------------------------------------------------------------
+# GUARDRAILS §22 — cross-sport structural alignment
+# ---------------------------------------------------------------------------
+
+#: Shared capabilities every sport package owns. Consistency here is the
+#: whole point of §22: this is the expected structure, and every deviation
+#: from it — in either direction — must be listed below with a reason.
+SPORT_SHARED_CAPABILITIES = {
+    "artifacts.py": "artifact writers / frontend artifact payloads",
+    "catalog.py": "raw-field catalog and catalog helpers",
+    "feature_registry.py": "versioned per-sport feature contracts",
+    "features.py": "point-in-time feature builders and views",
+    "ingestion.py": "external-source ingestion adapters",
+    "optimization.py": "optimization harness adapter bindings",
+    "runner.py": "production run entry point (slate -> artifacts)",
+    "study_config.py": "study configuration + contract binding",
+    "training.py": "walk-forward training / member ensemble",
+}
+
+#: Shared capabilities a sport lacks, documented rather than silently
+#: allowed. Empty today: all four sports own all nine. A gap added here is a
+#: reviewed exception, never an accident.
+SPORT_SHARED_CAPABILITY_GAPS: dict[str, tuple[str, ...]] = {}
+
+#: Reviewed §22 exception record. One entry per module that any sport
+#: carries BEYOND the shared set. ``present`` is the exact tuple of sports
+#: carrying it; ``status`` is "permitted" (required by the sport's data,
+#: rules or modeling needs) or "open" (NOT blessed — documented for a named
+#: review item); ``reason`` states why the difference exists and, for
+#: permitted entries, what covers the capability in the sports that lack it.
+SPORT_STRUCTURE_DIFFERENCES = {
+    "adapter.py": {
+        "present": ("nfl", "nhl", "nba"),
+        "status": "open",
+        "reason": (
+            "MLB has NO SportAdapter implementation while core/contracts.py "
+            "documents 'Implementations live in sports/<sport>/adapter.py'. "
+            "Nothing in production consumes the protocol today (only the "
+            "three NNX adapters exist, and they are used by the NNX runners "
+            "and their tests), so whether MLB must implement it is "
+            "UNPROVEN. Recorded as an open finding — not a permitted "
+            "difference — owned by the Phase 7.6 structure/ownership review."
+        ),
+    },
+    "distributions.py": {
+        "present": ("nfl", "nhl", "nba"),
+        "status": "permitted",
+        "reason": (
+            "NNX price margin and totals through a joint discrete-normal "
+            "score distribution (game_distribution / apply_distribution) "
+            "consumed by their runners and settlement tests. MLB needs no "
+            "such module because it prices markets through run_engine.py "
+            "(per-game run distribution). Different modeling need."
+        ),
+    },
+    "evaluation.py": {
+        "present": ("nfl", "nhl", "nba"),
+        "status": "permitted",
+        "reason": (
+            "NNX evaluate OOF binary metrics (binary_metrics, including a "
+            "genuine Brier) in a dedicated module used by their runners and "
+            "runner tests. MLB's equivalent binary evaluation lives in "
+            "sports/mlb/run_engine.py together with the shared "
+            "core/optimization/metrics.py. Different decomposition."
+        ),
+    },
+    "frames.py": {
+        "present": ("mlb",),
+        "status": "permitted",
+        "reason": (
+            "MLB's canonical point-in-time game frame (get_decided_frame / "
+            "attach_slate_row) exists for the per-game run-engine market "
+            "path; it is imported by sports/mlb/feature_registry.py, "
+            "optimization.py and runner.py and by the pinned fold/matrix "
+            "evidence tests. The NNX pipelines build their frames in "
+            "ingestion/features instead."
+        ),
+    },
+    "goalie_enrichment.py": {
+        "present": ("nhl",),
+        "status": "permitted",
+        "reason": (
+            "Sport-specific, display-only serving-contract panel for the "
+            "starting goaltender (point-in-time, trailing 10 appearances). "
+            "Each sport's participant panel is dictated by that sport's "
+            "data; MLB has none (frontend/utils.py builds MLB's)."
+        ),
+    },
+    "market_config.py": {
+        "present": ("mlb",),
+        "status": "permitted",
+        "reason": (
+            "MLB market constants (AGREEMENT_FILTER_DELTA / K_EDGE_BAND / "
+            "K_EDGE_REF) used by the run-engine agreement surface, which "
+            "has no NNX counterpart; NNX carry their market constants in "
+            "their adapter/distribution modules."
+        ),
+    },
+    "participant_enrichment.py": {
+        "present": ("nba",),
+        "status": "permitted",
+        "reason": (
+            "Sport-specific, display-only serving-contract panel for each "
+            "team's highest-scoring player (point-in-time, trailing 10 "
+            "games). Permitted for the same reason as the other "
+            "participant panels."
+        ),
+    },
+    "qb_enrichment.py": {
+        "present": ("nfl",),
+        "status": "permitted",
+        "reason": (
+            "Sport-specific, display-only serving-contract panel for the "
+            "announced starting quarterback (point-in-time, trailing 10 "
+            "completed games). Permitted for the same reason as the other "
+            "participant panels."
+        ),
+    },
+    "run_engine.py": {
+        "present": ("mlb",),
+        "status": "permitted",
+        "reason": (
+            "MLB's per-side run models plus NB Monte-Carlo market pricing "
+            "on a frozen 53-column lambda view — the per-game run "
+            "distribution MLB's markets require. NNX cover the capability "
+            "with distributions.py."
+        ),
+    },
+}
+
+#: Open findings are pinned so one cannot vanish silently: the computed set
+#: must equal this tuple. Promoting an entry to "permitted" requires an
+#: approved change to this constant and its reason.
+SPORT_OPEN_STRUCTURE_FINDINGS = ("adapter.py",)
+
 # Production trees that must never import experiments/.
 PRODUCTION_TREES = ("core", "sports", "frontend")
 
@@ -122,6 +257,74 @@ def test_no_new_top_level_directories():
            and not p.name.startswith((".", "__"))}
     unexpected = top - ALLOWED_TOP_LEVEL_DIRS
     assert not unexpected, f"unexpected top-level directories: {sorted(unexpected)}"
+
+
+# ---------------------------------------------------------------------------
+# 14b. cross-sport structural alignment (GUARDRAILS §22)
+# ---------------------------------------------------------------------------
+
+def test_sport_structure_matches_the_documented_exception_record():
+    """§22: shared capabilities are owned consistently, and every structural
+    difference is documented in the reviewed exception record below.
+
+    This test deliberately does NOT require identical sport packages: it
+    requires that any difference is documented with a status and a reason.
+    """
+    sports = ("mlb", "nfl", "nhl", "nba")
+    modules = {
+        sport: {p.name for p in (REPO_ROOT / "sports" / sport).glob("*.py")
+                if p.name != "__init__.py"}
+        for sport in sports
+    }
+
+    # 1. Every sport owns every shared capability, unless the gap itself is
+    #    a documented exception.
+    shared = set(SPORT_SHARED_CAPABILITIES)
+    computed_gaps = {
+        sport: tuple(sorted(shared - modules[sport]))
+        for sport in sports
+        if shared - modules[sport]
+    }
+    assert computed_gaps == SPORT_SHARED_CAPABILITY_GAPS, (
+        f"shared-capability gaps do not match the documented record: "
+        f"computed={computed_gaps}, documented={SPORT_SHARED_CAPABILITY_GAPS}")
+
+    # 2. Every module beyond the shared set is in the record, and every
+    #    record entry is a real module somewhere.
+    beyond = {m for sport in sports for m in modules[sport]} - shared
+    documented = set(SPORT_STRUCTURE_DIFFERENCES)
+    assert beyond == documented, (
+        f"undocumented structural differences: {sorted(beyond - documented)}"
+        f"; record entries with no module: {sorted(documented - beyond)}")
+
+    # 3. Each entry describes reality exactly, and carries a status+reason.
+    for name, entry in sorted(SPORT_STRUCTURE_DIFFERENCES.items()):
+        carrying = tuple(s for s in sports if name in modules[s])
+        assert carrying == tuple(entry["present"]), (
+            f"{name}: record says {entry['present']}, repository has "
+            f"{carrying}")
+        assert entry["status"] in ("permitted", "open"), (
+            f"{name}: status must be 'permitted' or 'open', "
+            f"got {entry['status']!r}")
+        assert entry["reason"].strip(), f"{name}: exception has no reason"
+
+    # 4. The rule does not require identical implementations: the record must
+    #    prove it by documenting at least one permitted difference.
+    permitted = sorted(
+        n for n, e in SPORT_STRUCTURE_DIFFERENCES.items()
+        if e["status"] == "permitted")
+    assert permitted, (
+        "§22 record documents no permitted difference — a policy that "
+        "forces identical sport implementations is not the approved rule")
+
+    # 5. Open findings are pinned: none may disappear or be silently
+    #    promoted to permitted.
+    open_findings = tuple(sorted(
+        n for n, e in SPORT_STRUCTURE_DIFFERENCES.items()
+        if e["status"] == "open"))
+    assert open_findings == SPORT_OPEN_STRUCTURE_FINDINGS, (
+        f"open structural findings drifted: computed={open_findings}, "
+        f"pinned={SPORT_OPEN_STRUCTURE_FINDINGS}")
 
 
 # ---------------------------------------------------------------------------
