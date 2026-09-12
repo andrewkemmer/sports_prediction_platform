@@ -11,9 +11,12 @@
 [project]
 name = "sports-prediction-platform"
 version = "0.1.0"
-description = "Multi-sport prediction platform (MLB, NFL, NHL, NBA) — scaffold phase."
+description = "Multi-sport prediction platform (MLB, NFL, NHL, NBA)."
 readme = "README.md"
-requires-python = ">=3.11"
+# CI installs and runs Python 3.10 (see .github/workflows/tests.yml) and the
+# pinned development environment is 3.10.21; the declared floor must match the
+# version the project is actually tested against.
+requires-python = ">=3.10"
 dependencies = [
     "pandas>=2.0",
     "numpy>=1.26",
@@ -65,4 +68,6 @@ python_files = ["test_*.py"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+# Matches requires-python and the CI interpreter; verified to produce an
+# identical finding set to the previous py311 target (120 findings either way).
+target-version = "py310"

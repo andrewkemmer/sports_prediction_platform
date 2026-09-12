@@ -58,6 +58,14 @@ ALLOWED_TOP_LEVEL_DIRS = {
     "sports_prediction_platform.egg-info",  # build metadata, untracked-able
 }
 
+#: Top-level entries the documented layout need not name: packaging/build
+#: metadata and the data trees that are absent-but-permitted.
+README_EXEMPT_TOP_LEVEL = {
+    "sports_prediction_platform.egg-info",
+    "data_delivery",
+    "scripts_ops",
+}
+
 # ---------------------------------------------------------------------------
 # GUARDRAILS §22 — cross-sport structural alignment
 # ---------------------------------------------------------------------------
@@ -257,6 +265,15 @@ def test_no_new_top_level_directories():
            and not p.name.startswith((".", "__"))}
     unexpected = top - ALLOWED_TOP_LEVEL_DIRS
     assert not unexpected, f"unexpected top-level directories: {sorted(unexpected)}"
+    # §14: the documented layout must name every top-level directory that
+    # exists, so README.md cannot drift from the repository it describes.
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    undocumented = sorted(
+        name for name in top
+        if name not in README_EXEMPT_TOP_LEVEL and f"{name}/" not in readme)
+    assert not undocumented, (
+        f"top-level directories missing from README.md's layout: "
+        f"{undocumented}")
 
 
 # ---------------------------------------------------------------------------
