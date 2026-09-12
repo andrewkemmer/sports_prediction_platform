@@ -41,6 +41,10 @@ training:
   retrain_cadence_days: 7     # fold geometry (not a scheduler)
   min_train_days_warmup: 30   # skip folds starting before this much history
 
+# §7.1 point-in-time gate (B-001, Phase 7.5d WS4): cutoff = game start − buffer.
+prediction_cutoff_buffer_minutes: 60   # must be 60 per §7.1 (MLB)
+availability_enforcement: report_only  # report_only | enforce (enforce = 7.6 metadata layer)
+
 retention:
   frontend_days: 20           # 20-day rolling deletion for frontend artifacts (spec §23; B-003)
 

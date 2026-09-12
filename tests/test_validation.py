@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,19 @@ from core.validation import (
     validate_metric,
     validate_probability,
     validate_probability_pair,
+)
+from core.validation.future_availability import (
+    BUFFER_MINUTES,
+    SPORT_RESOLUTION,
+    SPORT_START_COL,
+    FutureAvailabilityReport,
+    SlateWindowReport,
+    normalize_enforcement_mode,
+    prediction_cutoff,
+    validate_available_at,
+    validate_settlement_record,
+    validate_slate_window,
+    window_anchor,
 )
 
 
@@ -106,3 +120,196 @@ def test_round_float():
     assert round_float(0.123456789, 4) == 0.1235
     with pytest.raises(ValidationError):
         round_float(float("nan"))
+
+
+# ---------------------------------------------------------------------------
+# §7.1 point-in-time validators (B-001, Phase 7.5d WS4 — partial remediation;
+# per-field available_at metadata layer = B-001-RESIDUAL, Phase 7.6).
+# ---------------------------------------------------------------------------
+
+_UTC = timezone.utc
+_START = datetime(2026, 9, 7, 23, 5, tzinfo=_UTC)  # 7:05 PM ET game
+
+
+def _row(avail, start=_START, gid="g1"):
+    return {"game_id": gid, "scheduled_start_utc": start,
+            "available_at": avail}
+
+
+def test_s71_buffer_pins_match_spec():
+    """MLB/NHL 60 min, NFL/NBA 90 min — hard-pinned per §7.1."""
+    assert BUFFER_MINUTES == {"mlb": 60, "nhl": 60, "nfl": 90, "nba": 90}
+
+
+def test_s71_cutoff_math_per_sport():
+    assert prediction_cutoff(_START, 60) == _START - timedelta(minutes=60)
+    assert prediction_cutoff(_START, 90) == _START - timedelta(minutes=90)
+
+
+def test_s71_strict_inequality_and_equality_fails():
+    cutoff = prediction_cutoff(_START, 60)
+    ok = validate_available_at(
+        [_row(cutoff - timedelta(minutes=1))], buffer_minutes=60,
+        label="strict")
+    assert ok.ok and ok.n_violations == 0
+    # == cutoff FAILS (§7.1: strict < only).
+    eq = validate_available_at([_row(cutoff)], buffer_minutes=60,
+                               label="equality")
+    assert not eq.ok and eq.n_violations == 1
+    # 1 second after cutoff also fails.
+    late = validate_available_at(
+        [_row(cutoff + timedelta(seconds=1))], buffer_minutes=60,
+        label="late")
+    assert not late.ok
+
+
+def test_s71_fail_closed_on_missing_and_unparseable():
+    rep = validate_available_at(
+        [_row(None), _row("not-a-timestamp", gid="g2")],
+        buffer_minutes=60, label="failclosed")
+    assert not rep.ok
+    assert rep.n_missing == 2 and rep.n_violations == 0
+    assert any("g2" in m for m in rep.missing)
+    assert any("fails CLOSED" in m for m in rep.missing)
+
+
+def test_s71_rejects_non_spec_buffers():
+    with pytest.raises(ValidationError, match="must be 60"):
+        validate_available_at([_row(None)], buffer_minutes=0, label="zero")
+    with pytest.raises(ValidationError, match="per §7.1"):
+        validate_available_at([_row(None)], buffer_minutes=75, label="odd")
+
+
+def test_s71_slate_window_uniform_semantics():
+    """Secondary gate: the future-start check ALWAYS runs; resolution only
+    selects the comparison granularity (instant vs date)."""
+    import pandas as pd
+    frame = pd.DataFrame({
+        "game_id": ["a", "b"],
+        "start_time_utc": ["2026-09-07T16:05:00+00:00",
+                           "2026-09-08T01:05:00+00:00"],
+    })
+    # Anchor = the instant the serving window OPENS (its first date) —
+    # deterministic and window-derived, never wall clock.
+    anchor = window_anchor("20260907")
+    assert anchor == datetime(2026, 9, 7, tzinfo=_UTC)
+    rep = validate_slate_window(frame, anchor_utc=anchor,
+                                start_col="start_time_utc",
+                                resolution="instant", label="t")
+    assert isinstance(rep, SlateWindowReport) and rep.ok
+    # A PRE-WINDOW start (the day before the window opens) violates.
+    bad = validate_slate_window(
+        frame.assign(start_time_utc=["2026-09-06T23:05:00+00:00",
+                                     "2026-09-08T01:05:00+00:00"]),
+        anchor_utc=anchor, start_col="start_time_utc",
+        resolution="instant", label="t")
+    assert not bad.ok and bad.n_future_violations == 1
+
+
+def test_s71_slate_window_date_resolution():
+    """Date-granularity sports compare on calendar date at the window edge
+    (same-or-later than the window's first date passes)."""
+    import pandas as pd
+    frame = pd.DataFrame({
+        "game_id": ["a", "b"],
+        "gameday": ["2026-09-07", "2026-09-08"],
+    })
+    anchor = window_anchor("20260907")
+    assert anchor == datetime(2026, 9, 7, tzinfo=_UTC)
+    rep = validate_slate_window(frame, anchor_utc=anchor,
+                                start_col="gameday",
+                                resolution="date", label="t")
+    assert rep.ok
+    stale = validate_slate_window(
+        frame.assign(gameday=["2026-09-06", "2026-09-08"]),
+        anchor_utc=anchor, start_col="gameday",
+        resolution="date", label="t")
+    assert not stale.ok and any("predates the serving window" in v
+                                for v in stale.violations)
+    with pytest.raises(ValidationError, match="resolution"):
+        validate_slate_window(frame, anchor_utc=anchor, start_col="gameday",
+                              resolution="bogus", label="t")
+
+
+def test_s71_window_anchor_is_deterministic():
+    """Anchor derives from the serving window only — never wall clock; live
+    and replay produce identical anchors."""
+    assert window_anchor("20260907") == datetime(2026, 9, 7, tzinfo=_UTC)
+    assert window_anchor("20260908") == datetime(2026, 9, 8, tzinfo=_UTC)
+    assert window_anchor("20260907") == window_anchor("20260907")
+
+
+@pytest.mark.parametrize("sport", ["mlb", "nfl", "nhl", "nba"])
+def test_s71_slate_gate_catches_pre_window_and_decided_in_every_sport(sport):
+    """B-001 WS4 (uniform secondary gate): all four sports catch BOTH a
+    pre-window row and a decided row, at the start column/resolution each
+    sport's data supports."""
+    import pandas as pd
+    start_col = SPORT_START_COL[sport]
+    resolution = SPORT_RESOLUTION[sport]
+    anchor = window_anchor("20260907")
+    in_window = ("2026-09-07T23:05:00+00:00" if resolution == "instant"
+                 else "2026-09-07")
+    pre_window = ("2026-09-06T23:05:00+00:00" if resolution == "instant"
+                  else "2026-09-06")
+    clean = pd.DataFrame({"game_id": ["g1"], start_col: [in_window],
+                          "home_win": [None]})
+    assert validate_slate_window(clean, anchor_utc=anchor,
+                                 start_col=start_col,
+                                 resolution=resolution, label=sport).ok
+    pre = pd.DataFrame({"game_id": ["g1"], start_col: [pre_window],
+                        "home_win": [None]})
+    rep_pre = validate_slate_window(pre, anchor_utc=anchor,
+                                    start_col=start_col,
+                                    resolution=resolution, label=sport)
+    assert not rep_pre.ok and rep_pre.n_future_violations == 1
+    decided = pd.DataFrame({"game_id": ["g1"], start_col: [in_window],
+                            "home_win": [1.0]})
+    rep_dec = validate_slate_window(decided, anchor_utc=anchor,
+                                    start_col=start_col,
+                                    resolution=resolution, label=sport)
+    assert not rep_dec.ok and rep_dec.n_decided_rows == 1
+
+
+def test_s71_settlement_subgate_semantics():
+    class Cfg:
+        tie_allowed = False
+        push_allowed = True
+
+    class CfgNoPush:
+        tie_allowed = False
+        push_allowed = False
+
+    assert validate_settlement_record(
+        {"outcome": "home", "scope": "full_game"}, market_kind="moneyline",
+        settlement_cfg=Cfg()).ok
+    assert validate_settlement_record(
+        {"outcome": "push", "scope": "full_game"}, market_kind="moneyline",
+        settlement_cfg=Cfg()).ok
+    bad = validate_settlement_record(
+        {"outcome": "tie", "scope": "full_game"}, market_kind="moneyline",
+        settlement_cfg=Cfg())
+    assert not bad.ok and "tie_allowed=False" in bad.violations[0]
+    nopush = validate_settlement_record(
+        {"outcome": "push"}, market_kind="moneyline",
+        settlement_cfg=CfgNoPush())
+    assert not nopush.ok
+    scope_bad = validate_settlement_record(
+        {"outcome": "home", "scope": "regulation"},
+        market_kind="moneyline", settlement_cfg=Cfg())
+    assert not scope_bad.ok and "regulation" in scope_bad.violations[0]
+
+
+def test_s71_enforcement_mode_normalization():
+    assert normalize_enforcement_mode("report_only", "x") == "report_only"
+    assert normalize_enforcement_mode("enforce", "x") == "enforce"
+    assert normalize_enforcement_mode(None, "x") == "report_only"
+    with pytest.raises(ValidationError, match="enforce.*reserved"):
+        normalize_enforcement_mode("fail_open", "x")
+
+
+def test_s71_report_fields_present():
+    rep = validate_available_at([_row(_START - timedelta(hours=2))],
+                                buffer_minutes=60, label="fields")
+    assert isinstance(rep, FutureAvailabilityReport)
+    assert rep.n_rows == 1 and rep.label == "fields"

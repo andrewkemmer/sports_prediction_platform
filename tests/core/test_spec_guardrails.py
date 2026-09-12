@@ -511,3 +511,207 @@ def test_external_adapters_have_recorded_integration_smoke():
     raise AssertionError(
         "statcast adapter fetch path has no recorded or sandboxed "
         "integration smoke test")
+
+
+# ---------------------------------------------------------------------------
+# 8. B-001 §7.1 PIT validator wiring (Phase 7.5d WS4 — partial remediation;
+# per-field available_at metadata layer = B-001-RESIDUAL, Phase 7.6)
+# ---------------------------------------------------------------------------
+
+_SPORT_RUNNERS = {
+    "mlb": REPO_ROOT / "sports" / "mlb" / "runner.py",
+    "nfl": REPO_ROOT / "sports" / "nfl" / "runner.py",
+    "nhl": REPO_ROOT / "sports" / "nhl" / "runner.py",
+    "nba": REPO_ROOT / "sports" / "nba" / "runner.py",
+}
+
+_STUDY_CONFIGS = {
+    "mlb": REPO_ROOT / "sports" / "mlb" / "study_config.py",
+    "nfl": REPO_ROOT / "sports" / "nfl" / "study_config.py",
+    "nhl": REPO_ROOT / "sports" / "nhl" / "study_config.py",
+    "nba": REPO_ROOT / "sports" / "nba" / "study_config.py",
+}
+
+_S71_BUFFERS = {"mlb": 60, "nhl": 60, "nfl": 90, "nba": 90}
+
+
+def _calls_in(path: Path) -> list[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (SyntaxError, FileNotFoundError):
+        return []
+    return [n.func.id for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+
+
+def test_validate_slate_window_has_call_site_per_sport():
+    """B-001 WS4 guardrail: the SECONDARY slate gate (validate_slate_window
+    — §7.1-reserved PIT names are never reused) has ≥1 production call
+    site in every sport runner."""
+    gaps = [s for s, p in _SPORT_RUNNERS.items()
+            if "validate_slate_window" not in _calls_in(p)]
+    assert not gaps, f"validate_slate_window missing in runners: {gaps}"
+
+
+def test_slate_window_anchors_are_window_derived_per_sport():
+    """B-001 WS4 guardrail (uniform secondary gate): every runner derives
+    its slate-gate anchor from its SERVING WINDOW via ``window_anchor`` —
+    one argument, an attribute of the window object, never a literal date
+    and never wall clock — and passes an explicit ``resolution=`` /
+    ``start_col=`` matched to the sport's start data (mlb instant via
+    start_time_utc; nfl/nhl/nba date until the 7.6 start-timestamp
+    normalization).
+
+    AST-pinned: the ``window_anchor`` argument must be an attribute access
+    on the window object (``window.start_date`` / ``pred_window
+    .primary_date()``), and no ``utcnow``/``now``/``today`` attribute call
+    may appear inside it (artifact display stamps like ``trained_at``
+    elsewhere in the runner are out of scope — the ANCHOR must be
+    deterministic)."""
+    from core.validation.future_availability import (SPORT_RESOLUTION,
+                                                     SPORT_START_COL)
+    expected_attr = {"mlb": "primary_date", "nfl": "start_date",
+                     "nhl": "start_date", "nba": "start_date"}
+    for sport, path in _SPORT_RUNNERS.items():
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+        anchors = [n for n in ast.walk(tree)
+                   if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                   and n.func.id == "window_anchor"]
+        assert anchors, f"{sport}: no window_anchor call — anchor not wired"
+        for node in anchors:
+            assert len(node.args) == 1 and not node.keywords, (
+                f"{sport}: window_anchor must take exactly the serving "
+                "window's first date")
+            arg = node.args[0]
+            arg_src = ast.unparse(arg)
+            assert expected_attr[sport] in arg_src and (
+                "window" in arg_src), (
+                f"{sport}: window_anchor argument {arg_src!r} is not the "
+                "serving window's first date")
+            for sub in ast.walk(arg):
+                if (isinstance(sub, ast.Attribute)
+                        and sub.attr in ("now", "utcnow", "today")):
+                    raise AssertionError(
+                        f"{sport}: wall-clock call in the window_anchor "
+                        "argument — the slate-gate anchor must be "
+                        "window-derived")
+        assert f'resolution="{SPORT_RESOLUTION[sport]}"' in src, (
+            f"{sport}: expected resolution={SPORT_RESOLUTION[sport]!r} at "
+            "the slate gate")
+        assert f'start_col="{SPORT_START_COL[sport]}"' in src, (
+            f"{sport}: expected start_col={SPORT_START_COL[sport]!r} at "
+            "the slate gate")
+
+
+def test_validate_available_at_has_call_site_per_sport():
+    """B-001 WS4 guardrail: the §7.1 per-field gate (validate_available_at,
+    report_only mode in 7.5d) has ≥1 production call site in every sport
+    runner — the metadata gap is operationally visible every run."""
+    gaps = [s for s, p in _SPORT_RUNNERS.items()
+            if "validate_available_at" not in _calls_in(p)]
+    assert not gaps, f"validate_available_at missing in runners: {gaps}"
+
+
+def test_validate_settlement_record_has_call_site_per_sport():
+    """B-001 WS4 guardrail: the settlement sub-gate
+    (validate_settlement_record — distinct from the B-005 record-shape
+    registry, never citable as PIT evidence) has ≥1 production call site
+    in every sport runner."""
+    gaps = [s for s, p in _SPORT_RUNNERS.items()
+            if "validate_settlement_record" not in _calls_in(p)]
+    assert not gaps, f"validate_settlement_record missing in runners: {gaps}"
+
+
+def test_study_configs_bind_s71_buffer_keys():
+    """B-001 WS4 guardrail: all four study_config.py modules bind and
+    hard-pin prediction_cutoff_buffer_minutes (60 MLB/NHL, 90 NFL/NBA per
+    §7.1) and availability_enforcement (report_only default)."""
+    import importlib
+    for sport, expected in _S71_BUFFERS.items():
+        src = _STUDY_CONFIGS[sport].read_text(encoding="utf-8")
+        assert "prediction_cutoff_buffer_minutes" in src, sport
+        assert "availability_enforcement" in src, sport
+        assert f"!= {expected}" in src, (
+            f"{sport}: buffer not hard-pinned to {expected} per §7.1")
+        assert "report_only" in src, sport
+        mod = importlib.import_module(f"sports.{sport}.study_config")
+        cls = next(c for c in vars(mod).values()
+                   if isinstance(c, type)
+                   and hasattr(c, "__dataclass_fields__")
+                   and "prediction_cutoff_buffer_minutes"
+                   in getattr(c, "__dataclass_fields__", {}))
+        assert "availability_enforcement" in cls.__dataclass_fields__, sport
+
+
+def test_mlb_slate_anchor_source_is_the_serving_windows_first_date():
+    """B-001 WS4 review closure — MLB anchor-source invariant (option (a)).
+
+    MLB's slate-gate anchor argument is ``pred_window.primary_date()``. That
+    IS the serving window's FIRST date for EVERY MLB window, so the anchor is
+    the window's lower bound exactly as in the other three sports. Cited
+    construction:
+
+    * ``core/prediction_window.py::PredictionWindow.primary_date`` returns
+      ``self.slate_dates[0]``;
+    * ``resolve_prediction_window`` builds ``slate_dates`` as
+      ``run_date + 0..lookahead_days`` (fields ``run_date``/``slate_dates``
+      above), so ``slate_dates[0] == run_date``;
+    * ``sports/mlb/runner.py`` resolves that window from ``window.start_date``
+      — the run window's FIRST date — so
+      ``primary_date() == run_date == window.start_date``;
+    * ``sports.mlb.runner._build_slate`` keeps every row whose date is in
+      ``pred_window.slate_dates`` (primary + lookahead), so option (b)
+      "MLB serves only primary-date games" is FALSE and the anchor must be
+      the window's lower bound.
+
+    Pins both halves: the structural identity, and its behavioural
+    consequence — the whole served slate sits at/after the anchor while a
+    pre-window row is rejected.
+    """
+    from datetime import datetime, timezone
+
+    import pandas as pd
+
+    from core.config import default_config
+    from core.prediction_window import resolve_prediction_window
+    from core.validation.future_availability import (validate_slate_window,
+                                                     window_anchor)
+    from sports.mlb.runner import _build_slate
+
+    sport = default_config().sport("mlb")
+    w = resolve_prediction_window("20260907", sport)
+
+    # (1) structural: primary_date() is the window's FIRST date == run_date.
+    assert w.primary_date() == w.slate_dates[0] == w.run_date == "20260907"
+    assert list(w.slate_dates) == sorted(w.slate_dates)
+    # Multi-day window — MLB serves primary + lookahead, i.e. NOT primary-
+    # date-only (this is why (a) holds and (b) does not).
+    assert w.lookahead_days >= 1
+    assert len(w.slate_dates) == w.lookahead_days + 1
+
+    # (2) behavioural: the served slate spans the whole window, and every
+    # served row is at/after the anchor derived from primary_date().
+    frame = pd.DataFrame({
+        "game_date": ["2026-09-06", "2026-09-07", "2026-09-08", "2026-09-09"],
+        "game_pk": [1, 2, 3, 4],
+        "home_win": [pd.NA, pd.NA, pd.NA, pd.NA],
+        "start_time_utc": ["2026-09-06T23:05:00+00:00",
+                           "2026-09-07T23:05:00+00:00",
+                           "2026-09-08T23:05:00+00:00",
+                           "2026-09-09T23:05:00+00:00"],
+    })
+    slate = _build_slate(frame, w)
+    assert sorted(slate["game_date"]) == ["2026-09-07", "2026-09-08"]
+    anchor = window_anchor(w.primary_date())
+    assert anchor == datetime(2026, 9, 7, tzinfo=timezone.utc)
+    assert (pd.to_datetime(slate["start_time_utc"], utc=True) >= anchor).all()
+    assert validate_slate_window(slate, anchor_utc=anchor,
+                                 start_col="start_time_utc",
+                                 resolution="instant", label="mlb").ok
+    # The anchor is the LOWER bound: a pre-window row is rejected.
+    pre = frame[frame["game_date"] == "2026-09-06"]
+    rep = validate_slate_window(pre, anchor_utc=anchor,
+                                start_col="start_time_utc",
+                                resolution="instant", label="mlb")
+    assert not rep.ok and rep.n_future_violations == 1

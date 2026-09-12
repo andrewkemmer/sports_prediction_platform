@@ -31,6 +31,7 @@ _ALLOWED_TOP = {
     "windows", "elo", "venue", "warmup", "walk_forward", "oof", "training",
     "market", "retention", "allowlisted_families",
     "retention_exempt_families",
+    "prediction_cutoff_buffer_minutes", "availability_enforcement",
 }
 
 
@@ -172,6 +173,8 @@ class NBAStudy:
     frontend_days: int
     allowlisted_families: tuple[str, ...]
     retention_exempt_families: tuple[str, ...]
+    prediction_cutoff_buffer_minutes: int
+    availability_enforcement: str
     feature_columns: tuple[str, ...] = FEATURE_COLUMNS
     moneyline_feature_cols: tuple[str, ...] = MONEYLINE_FEATURE_COLS
     moneyline_contract_version: str = MONEYLINE_CONTRACT_VERSION
@@ -354,6 +357,17 @@ def load_nba_study(path: str | Path | None = None) -> NBAStudy:
         raise NBAStudyError(
             f"retention.frontend_days must be 20 (got {frontend_days})")
 
+    # §7.1 PIT gate (B-001 WS4): buffer hard-pinned, mode validated.
+    buffer = int(data.get("prediction_cutoff_buffer_minutes", 90))
+    if buffer != 90:
+        raise NBAStudyError(
+            f"prediction_cutoff_buffer_minutes must be 90 per §7.1 (NBA), "
+            f"got {buffer}")
+    from core.validation.future_availability import (
+        normalize_enforcement_mode)
+    availability_enforcement = normalize_enforcement_mode(
+        data.get("availability_enforcement", "report_only"), "nba study")
+
     allow = tuple(data.get("allowlisted_families") or ())
     if not allow:
         raise NBAStudyError("allowlisted_families must be non-empty")
@@ -383,6 +397,8 @@ def load_nba_study(path: str | Path | None = None) -> NBAStudy:
         frontend_days=frontend_days,
         allowlisted_families=allow,
         retention_exempt_families=exempt,
+        prediction_cutoff_buffer_minutes=buffer,
+        availability_enforcement=availability_enforcement,
         feature_columns=FEATURE_COLUMNS,
         moneyline_feature_cols=MONEYLINE_FEATURE_COLS,
         moneyline_contract_version=MONEYLINE_CONTRACT_VERSION,

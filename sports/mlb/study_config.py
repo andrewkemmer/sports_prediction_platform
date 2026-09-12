@@ -43,6 +43,7 @@ _ALLOWED_TOP = {
     "sport", "kind", "study_id", "data_start_date", "warmup",
     "walk_forward", "oof", "training", "retention",
     "allowlisted_families", "retention_exempt_families",
+    "prediction_cutoff_buffer_minutes", "availability_enforcement",
 }
 
 
@@ -96,6 +97,8 @@ class MLBStudy:
     frontend_days: int
     allowlisted_families: tuple[str, ...]
     retention_exempt_families: tuple[str, ...]
+    prediction_cutoff_buffer_minutes: int
+    availability_enforcement: str
     moneyline_feature_cols: tuple[str, ...] = MONEYLINE_FEATURE_COLS
     moneyline_contract_version: str = MONEYLINE_CONTRACT_VERSION
     market_feature_cols: tuple[str, ...] = MARKET_FEATURE_COLS
@@ -212,6 +215,17 @@ def load_mlb_study(path: str | Path | None = None) -> MLBStudy:
         raise MLBStudyError(
             f"retention.frontend_days must be 20 (got {frontend_days})")
 
+    # §7.1 PIT gate (B-001 WS4): buffer hard-pinned, mode validated.
+    buffer = int(data.get("prediction_cutoff_buffer_minutes", 60))
+    if buffer != 60:
+        raise MLBStudyError(
+            f"prediction_cutoff_buffer_minutes must be 60 per §7.1 (MLB), "
+            f"got {buffer}")
+    from core.validation.future_availability import (
+        normalize_enforcement_mode)
+    availability_enforcement = normalize_enforcement_mode(
+        data.get("availability_enforcement", "report_only"), "mlb study")
+
     allow = tuple(data.get("allowlisted_families") or ())
     if not allow:
         raise MLBStudyError("allowlisted_families must be non-empty")
@@ -236,6 +250,8 @@ def load_mlb_study(path: str | Path | None = None) -> MLBStudy:
         frontend_days=frontend_days,
         allowlisted_families=allow,
         retention_exempt_families=exempt,
+        prediction_cutoff_buffer_minutes=buffer,
+        availability_enforcement=availability_enforcement,
         moneyline_feature_cols=MONEYLINE_FEATURE_COLS,
         moneyline_contract_version=MONEYLINE_CONTRACT_VERSION,
         market_feature_cols=MARKET_FEATURE_COLS,

@@ -31,6 +31,13 @@ import pandas as pd
 
 from core.config import PlatformConfig, default_config
 from core.record_validation import validate_record
+from core.markets import FULL_GAME_NO_TIE
+from core.validation.future_availability import (
+    validate_available_at,
+    validate_settlement_record,
+    validate_slate_window,
+    window_anchor,
+)
 from core.retention import run_production_retention
 from core.runconfig import resolve_run_window
 from sports.nfl.ingestion import (
@@ -263,6 +270,31 @@ def run_nfl_production(
                 gd <= pd.Timestamp(window.end_date) + pd.Timedelta(
                     hours=23, minutes=59, seconds=59))
             slate = slate[in_window].reset_index(drop=True)
+        # B-001 WS4: SECONDARY slate gate (every served start at/after the
+        # serving-window lower bound, no decided rows) — loud on violation;
+        # NOT §7.1 PIT evidence.
+        # Deterministic serving-window-derived anchor (never wall clock):
+        # the instant the run window opens (window.start_date).
+        # Date-resolution comparison: NFL starts are date-granularity
+        # today (instant starts = 7.6 start-timestamp normalization).
+        slate_report = validate_slate_window(
+            slate,
+            anchor_utc=window_anchor(window.start_date.replace("-", "")),
+            start_col="gameday", resolution="date", label="nfl slate")
+        if not slate_report.ok:
+            raise NFLRunnerError(
+                f"slate window gate failed: {slate_report.violations[:3]}")
+        # §7.1 per-field gate (report_only in 7.5d): telemetry every run.
+        pit_report = validate_available_at(
+            slate.to_dict(orient="records"),
+            buffer_minutes=study.prediction_cutoff_buffer_minutes,
+            label="nfl availability (report_only)",
+            start_col="gameday", available_col="available_at")
+        logger.info(
+            "[B-001 §7.1] %s: n_rows=%d n_missing=%d n_violations=%d "
+            "missing_ids=%s (metadata layer = B-001-RESIDUAL, 7.6)",
+            pit_report.label, pit_report.n_rows, pit_report.n_missing,
+            pit_report.n_violations, list(pit_report.missing)[:3])
         if not slate.empty:
             slate = slate.sort_values("gameday").reset_index(drop=True)
             p_home = predict_slate(final_models, slate, weights, study)
@@ -499,6 +531,20 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
     outs = [_outcome_row(r) for r in df.itertuples(index=False)]
     for c in outs[0]:
         df[c] = [o[c] for o in outs]
+    # B-001 WS4 settlement sub-gate: every settled fair market record
+    # must carry a rule-consistent outcome (win/loss/push under the
+    # full-game moneyline config; distinct from the B-005 shape gate,
+    # NOT PIT evidence).
+    for i, o in enumerate(outs):
+        outcome = ("push" if (o["y_push_fair"] == 1.0 or
+                              o["y_push_spread_fair"] == 1.0)
+                   else "home" if o["y_home_win"] == 1.0 else "away")
+        rec = validate_settlement_record(
+            {"outcome": outcome, "scope": "full_game"},
+            market_kind="moneyline", settlement_cfg=FULL_GAME_NO_TIE,
+            label=f"nfl fair market row {df['game_id'].iloc[i]}")
+        if not rec.ok:
+            raise NFLRunnerError(f"settlement gate failed: {rec.violations}")
     return df
 
 

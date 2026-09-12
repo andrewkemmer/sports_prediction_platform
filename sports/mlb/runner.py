@@ -29,7 +29,14 @@ import numpy as np
 import pandas as pd
 
 from core.config import PlatformConfig, default_config
+from core.markets import FULL_GAME_NO_TIE
 from core.prediction_window import resolve_prediction_window
+from core.validation.future_availability import (
+    validate_available_at,
+    validate_settlement_record,
+    validate_slate_window,
+    window_anchor,
+)
 from core.retention import run_production_retention
 from core.runconfig import resolve_run_window
 from sports.mlb.artifacts import write_all_artifacts
@@ -146,8 +153,47 @@ def run_mlb_production(
                 "no decided games in the feature frame — cannot train")
         result.n_decided_games = int(len(decided))
 
+        # B-001 WS4 settlement sub-gate: each settled OOF moneyline row
+        # must carry a rule-consistent win/loss outcome (full-game MLB
+        # moneyline config; distinct from the B-005 shape gate, NOT PIT
+        # evidence).
+        for gid, y in zip(decided["game_pk"], decided["home_win"]):
+            outcome = "home" if float(y) == 1.0 else "away"
+            rec = validate_settlement_record(
+                {"outcome": outcome, "scope": "full_game"},
+                market_kind="moneyline", settlement_cfg=FULL_GAME_NO_TIE,
+                label=f"mlb oof moneyline row {gid}")
+            if not rec.ok:
+                raise MLBRunnerError(
+                    f"settlement gate failed: {rec.violations}")
+
         # Prediction-window slate rows (pre-game, PIT-carried state).
         slate = _build_slate(game_df, pred_window)
+        # B-001 WS4: SECONDARY slate gate (every served start at/after the
+        # serving-window lower bound, no decided rows) — loud on violation;
+        # NOT §7.1 PIT evidence.
+        # Deterministic serving-window-derived anchor (never wall clock):
+        # the instant the window opens (first prediction-window date);
+        # instant-resolution comparison (MLB carries start_time_utc).
+        slate_report = validate_slate_window(
+            slate,
+            anchor_utc=window_anchor(pred_window.primary_date()),
+            start_col="start_time_utc", resolution="instant",
+            label="mlb slate")
+        if not slate_report.ok:
+            raise MLBRunnerError(
+                f"slate window gate failed: {slate_report.violations[:3]}")
+        # §7.1 per-field gate (report_only in 7.5d): telemetry every run.
+        pit_report = validate_available_at(
+            slate.to_dict(orient="records"),
+            buffer_minutes=study.prediction_cutoff_buffer_minutes,
+            label="mlb availability (report_only)",
+            start_col="start_time_utc", available_col="available_at")
+        logger.info(
+            "[B-001 §7.1] %s: n_rows=%d n_missing=%d n_violations=%d "
+            "missing_ids=%s (metadata layer = B-001-RESIDUAL, 7.6)",
+            pit_report.label, pit_report.n_rows, pit_report.n_missing,
+            pit_report.n_violations, list(pit_report.missing)[:3])
         result.n_prediction_games = int(len(slate))
 
         candidate, feature_cols = build_candidate_frame(decided)

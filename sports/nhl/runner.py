@@ -30,8 +30,15 @@ import numpy as np
 import pandas as pd
 
 from core.config import PlatformConfig, default_config
+from core.markets import FULL_GAME_TIE_ALLOWED
 from core.record_validation import validate_record
 from core.retention import run_production_retention
+from core.validation.future_availability import (
+    validate_available_at,
+    validate_settlement_record,
+    validate_slate_window,
+    window_anchor,
+)
 from core.runconfig import resolve_run_window
 from sports.nhl.study_config import load_nhl_study
 
@@ -228,6 +235,19 @@ def run_nhl_production(
 
         # calibration (Platt on OOF only)
         y_oof = oof_ml["home_win"].to_numpy(float)
+        # B-001 WS4 settlement sub-gate: each settled OOF moneyline row
+        # must carry a rule-consistent win/loss outcome (full-game NHL
+        # moneyline config; distinct from the B-005 shape gate, NOT PIT
+        # evidence).
+        for gid, y in zip(oof_ml["game_id"], oof_ml["home_win"]):
+            outcome = "home" if float(y) == 1.0 else "away"
+            rec = validate_settlement_record(
+                {"outcome": outcome, "scope": "full_game"},
+                market_kind="moneyline", settlement_cfg=FULL_GAME_TIE_ALLOWED,
+                label=f"nhl oof moneyline row {gid}")
+            if not rec.ok:
+                raise NHLRunnerError(
+                    f"settlement gate failed: {rec.violations}")
         p_ens = oof_ml["p_ensemble"].to_numpy(float)
         okp = np.isfinite(p_ens)
         platt = fit_platt(p_ens[okp], y_oof[okp])
@@ -257,6 +277,31 @@ def run_nhl_production(
                 gd <= pd.Timestamp(window.end_date) + pd.Timedelta(
                     hours=23, minutes=59, seconds=59))
             slate = slate[in_window].reset_index(drop=True)
+        # B-001 WS4: SECONDARY slate gate (every served start at/after the
+        # serving-window lower bound, no decided rows) — loud on violation;
+        # NOT §7.1 PIT evidence.
+        # Deterministic serving-window-derived anchor (never wall clock):
+        # the instant the run window opens (window.start_date).
+        # Date-resolution comparison: NHL starts are date-granularity
+        # today (instant starts = 7.6 start-timestamp normalization).
+        slate_report = validate_slate_window(
+            slate,
+            anchor_utc=window_anchor(window.start_date.replace("-", "")),
+            start_col="game_date", resolution="date", label="nhl slate")
+        if not slate_report.ok:
+            raise NHLRunnerError(
+                f"slate window gate failed: {slate_report.violations[:3]}")
+        # §7.1 per-field gate (report_only in 7.5d): telemetry every run.
+        pit_report = validate_available_at(
+            slate.to_dict(orient="records"),
+            buffer_minutes=study.prediction_cutoff_buffer_minutes,
+            label="nhl availability (report_only)",
+            start_col="game_date", available_col="available_at")
+        logger.info(
+            "[B-001 §7.1] %s: n_rows=%d n_missing=%d n_violations=%d "
+            "missing_ids=%s (metadata layer = B-001-RESIDUAL, 7.6)",
+            pit_report.label, pit_report.n_rows, pit_report.n_missing,
+            pit_report.n_violations, list(pit_report.missing)[:3])
         if not slate.empty:
             slate = slate.sort_values("game_date").reset_index(drop=True)
             p_home = predict_slate(final_models, slate, weights, study)
