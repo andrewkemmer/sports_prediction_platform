@@ -442,12 +442,23 @@ def default_artifact_contract(sport: str,
              "csv"),
             ("feature_coverage", f"{s}_run_engine_feature_coverage_*.csv",
              "csv"),
+            # §22.1 standalone monitor siblings (r5): same records MLB
+            # persists, sport-prefixed filenames.
+            ("rolling_brier", f"{s}_rolling_brier_*.json", "json"),
+            ("features_metadata", f"{s}_features_metadata_*.json", "json"),
         ]
     durable = [
         ("model_history", "model_history.json", "json"),
         ("model_version_history", "model_version_history.json", "json"),
-        ("features_metadata", "features_metadata.json", "json"),
     ]
+    if s == "mlb":
+        # MLB keeps its durable features_metadata declaration (reviewed pin,
+        # tests/test_mlb_artifact_schemas.py): the real repo emits the dated
+        # copy, but the family is retention-exempt for MLB.
+        durable.append(("features_metadata", "features_metadata.json", "json"))
+    # NNX: the formerly declared-but-unemitted durable
+    # ``{s}_features_metadata.json`` is replaced by the dated standalone
+    # emission added above (r5 §22.1 migration).
     prefix = "" if s == "mlb" else f"{s}_"
     families = []
     for name, pattern, ext in dated:

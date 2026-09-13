@@ -512,6 +512,23 @@ def run_nba_production(
             features_metadata=fc_meta)
         written.append(sink / f"nba_model_monitor_{date_c}.json")
 
+        # §22.1 standalone monitor siblings — the same records MLB
+        # persists: the REAL rolling moneyline Brier (from this run's
+        # decided OOF market rows; the nested monitor field stays the
+        # frontend's compact copy) and the canonical feature metadata.
+        from core.evaluation.probabilistic_metrics import rolling_brier_payload
+        from sports.nba.artifacts import (
+            persist_features_metadata as _persist_fm,
+            persist_rolling_brier as _persist_rb,
+        )
+        _rb_payload = rolling_brier_payload(
+            oof_market_rows, prob_col="p_home_win",
+            date_col="game_date")
+        _persist_rb(_rb_payload, date_c, sink)
+        written.append(sink / f"nba_rolling_brier_{date_c}.json")
+        _persist_fm(fc_meta, date_c, sink)
+        written.append(sink / f"nba_features_metadata_{date_c}.json")
+
         result.artifacts_written = [p.name for p in written
                                     if isinstance(p, Path)]
         generation_succeeded = bool(result.artifacts_written)

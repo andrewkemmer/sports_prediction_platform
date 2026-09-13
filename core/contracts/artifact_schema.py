@@ -292,6 +292,13 @@ _NNX_RUN_ENGINE_MONITOR_KEYS = ("schema", "date", "markets_persisted",
                                 "config")
 _NNX_RUN_ENGINE_MONITOR_NULLABLE = frozenset({"markets_persist_error"})
 
+# Standalone rolling_brier / features_metadata payloads (r5 §22.1): the
+# same key sets MLB's contracts declare (the documents are computed by the
+# same helpers and share the serialized shape across sports).
+_NNX_ROLLING_BRIER_KEYS = _MLB_ROLLING_BRIER_KEYS
+_NNX_ROLLING_BRIER_NULLABLE = _MLB_ROLLING_BRIER_NULLABLE
+_NNX_FEATURES_METADATA_KEYS = _MLB_FEATURES_METADATA_KEYS
+
 # Columns shared by all three NNX market grids (base block, before the
 # per-sport spread/totals grids are appended by the engines).
 _NNX_MARKETS_BASE_COLS = (
@@ -416,8 +423,11 @@ def _rl_mass_groups(lines: tuple) -> tuple:
 
 
 def _register_nnx(sport: str, matchup_family: str, reg: dict) -> None:
-    """NFL/NHL/NBA entries (14 each: 10 artifact primaries +
-    run_engine_markets.meta + 3 runner-side OOF/fold stores)."""
+    """NFL/NHL/NBA entries (16 each: 10 artifact primaries +
+    run_engine_markets.meta + 3 runner-side OOF/fold stores + the two
+    standalone monitor siblings rolling_brier / features_metadata that
+    r5 migrated out of the nested model-monitor JSON — §22.1 parity with
+    MLB's standalone artifacts)."""
     reg[sport, "moneyline_v1"] = RecordType(
         "json", _NNX_MONEYLINE_KEYS, _NNX_MONEYLINE_NULLABLE,
         game_card_probability_fields=("home_win_prob_model",
@@ -440,6 +450,17 @@ def _register_nnx(sport: str, matchup_family: str, reg: dict) -> None:
     reg[sport, "run_engine_markets.meta"] = RecordType(
         "json", _NNX_MARKETS_META_KEYS,
         description=f"{sport} markets .meta.json companion")
+    # Standalone monitor siblings (r5 §22.1 migration): the same records
+    # MLB persists as rolling_brier_<date>.json / features_metadata_<date>.json.
+    # The model-monitor JSON keeps its nested copies for frontend parity;
+    # these standalone artifacts are the durable per-run documents.
+    reg[sport, "rolling_brier"] = RecordType(
+        "json", _NNX_ROLLING_BRIER_KEYS, _NNX_ROLLING_BRIER_NULLABLE,
+        description=f"{sport} rolling Brier (standalone; moneyline "
+        "semantics: source_column home_win_prob_model)")
+    reg[sport, "features_metadata"] = RecordType(
+        "json", _NNX_FEATURES_METADATA_KEYS,
+        description=f"{sport} feature-set metadata (standalone)")
     reg[sport, "shap_game"] = RecordType(
         "frame", _SHAP_COLS, description=f"{sport} per-game SHAP")
     reg[sport, "predictions_history"] = RecordType(
@@ -541,7 +562,8 @@ _register_nnx("nhl", "goalie_matchup", REGISTRY)
 _register_nnx("nba", "player_matchup", REGISTRY)
 _register_markets_mass_groups(REGISTRY)
 
-# Pinned count: 14 MLB + 14 NFL + 14 NHL + 14 NBA (separate .meta
-# entries). Pinned by tests/test_contracts.py with an explanatory
-# comment; a change here is a registry change and must be reviewed.
-EXPECTED_REGISTRY_SIZE = 56
+# Pinned count: 14 MLB + 16 each for NFL/NHL/NBA (the r5 §22.1 migration
+# added the standalone rolling_brier / features_metadata records). Pinned
+# by tests/test_contracts.py with an explanatory comment; a change here
+# is a registry change and must be reviewed.
+EXPECTED_REGISTRY_SIZE = 62

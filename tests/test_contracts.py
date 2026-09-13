@@ -234,14 +234,15 @@ def test_contract_paths_under_new_layout(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_registry_size_pinned():
-    """The registry pins 56 entries: 14 per sport. MLB = 13 primaries +
-    run_engine_markets.meta; each of NFL/NHL/NBA = 10 artifact primaries
-    + run_engine_markets.meta + 3 runner-side OOF/fold stores. Any
-    change is a reviewed registry change — never silent growth."""
-    assert len(REGISTRY) == EXPECTED_REGISTRY_SIZE == 56
+    """The registry pins 62 entries: 14 MLB (13 primaries +
+    run_engine_markets.meta) and 16 each for NFL/NHL/NBA (10 artifact
+    primaries + run_engine_markets.meta + 3 runner-side OOF/fold stores
+    + the r5 §22.1 standalone rolling_brier / features_metadata).
+    Any change is a reviewed registry change — never silent growth."""
+    assert len(REGISTRY) == EXPECTED_REGISTRY_SIZE == 62
     from collections import Counter
     per_sport = Counter(s for s, _ in REGISTRY)
-    assert per_sport == {"mlb": 14, "nfl": 14, "nhl": 14, "nba": 14}
+    assert per_sport == {"mlb": 14, "nfl": 16, "nhl": 16, "nba": 16}
 
 
 def test_registry_nonempty_required_fields_and_probability_closed():
@@ -496,13 +497,14 @@ ARTIFACT_TO_RECORD_FAMILY = {
 _ARTIFACT_FAMILY_WITHOUT_RECORD_CONTRACT = {
     # Reserved durable names — zero production writers today (documented in
     # core/record_validation.py; a future writer must add a registry entry).
+    # r5 §22.1: nfl/nhl/nba_features_metadata left this set — the durable
+    # alias was replaced by the DATED standalone features_metadata emission
+    # (record contract (sport, "features_metadata") added in the same
+    # change).
     "mlb": {"model_history", "model_version_history"},
-    "nfl": {"nfl_model_history", "nfl_model_version_history",
-            "nfl_features_metadata"},
-    "nhl": {"nhl_model_history", "nhl_model_version_history",
-            "nhl_features_metadata"},
-    "nba": {"nba_model_history", "nba_model_version_history",
-            "nba_features_metadata"},
+    "nfl": {"nfl_model_history", "nfl_model_version_history"},
+    "nhl": {"nhl_model_history", "nhl_model_version_history"},
+    "nba": {"nba_model_history", "nba_model_version_history"},
 }
 #: NNX game cards / drift / coverage are NOT standalone records: the cards ship
 #: in ``<sport>_moneyline_v1_*.json`` and drift/coverage are file-embedded

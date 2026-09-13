@@ -13,9 +13,102 @@ within-scope only, never across scopes.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import numpy as np
+import pandas as pd
 
 from core.folds.oof import brier_score, log_loss, oof_metrics, roc_auc
+
+#: Window constants of the rolling-Brier artifact contract (shared by all
+#: four sports; the values are part of the pinned payload schema).
+ROLLING_BRIER_WINDOW_DAYS = 30
+ROLLING_BRIER_MIN_GAMES_PER_DAY = 1
+
+
+def rolling_brier_payload(markets: pd.DataFrame | None, *,
+                          window_days: int = ROLLING_BRIER_WINDOW_DAYS,
+                          min_games_per_day: int =
+                          ROLLING_BRIER_MIN_GAMES_PER_DAY,
+                          prob_col: str = "ml_win_prob",
+                          date_col: str = "game_date",
+                          map_scope_note: str = "league-wide rolling brier"
+                          ) -> dict:
+    """League-wide rolling MONEYLINE Brier from decided OOF games.
+
+    One implementation for all four sports (r5 §22.1): MLB's
+    ``_rolling_brier_payload`` and the NNX runners' standalone
+    ``rolling_brier_<date>.json`` writer all compute this payload.    The series is the artifact contract's own series: ``source_column``
+    names ``home_win_prob_model`` — the moneyline probability, carried
+    on each sport's markets frame as ``prob_col`` (MLB: ``ml_win_prob``;
+    NFL/NHL/NBA: ``p_home_win``, the calibrated-with-fallback serving
+    probability) — scored against the settled ``home_score >
+    away_score`` outcome, one point per calendar day (``date_col``:
+    ``game_date``; NFL's OOF frame carries ``gameday``). The per-day
+    value is the canonical Brier formula (mean squared error between
+    predicted probability and actual outcome —
+    ``core.folds.oof.brier_score``).
+
+    Games whose moneyline probability or final score is unavailable are
+    EXCLUDED from the series (never fabricated as 0.0/0.5); days left
+    with fewer than ``min_games_per_day`` usable games are counted in
+    ``excluded_sparse_days``. ``history_mean_brier`` is null only when no
+    day qualified — it is a contract-nullable field, not a placeholder.
+
+    SEMANTICS — this artifact is MONEYLINE, not totals:
+
+    * probabilities come from the moneyline model's ``home_win_prob_model``
+      column (carried on the markets frame as ``ml_win_prob``);
+    * outcomes come from settled results, ``home_score > away_score``;
+    * scoring uses the canonical ``core.folds.oof.brier_score``
+      (``mean((p - y) ** 2)``);
+    * unavailable or non-finite (NaN) probability/outcome rows are EXCLUDED
+      — never imputed or fabricated;
+    * the payload keys, order, and dtypes match the pinned
+      ``rolling_brier`` registry schema exactly.
+
+    (MLB's totals-scoring helper
+    ``compute_rolling_totals_brier`` remains DELIBERATELY unwired per
+    the 7.5e-D disposition: scoring a moneyline artifact against a
+    totals market would be a market-semantics regression.)
+    """
+    series: list[dict] = []
+    excluded = 0
+    if markets is not None and not markets.empty:
+        required = (prob_col, "home_score", "away_score", date_col)
+        if set(required) <= set(markets.columns):
+            usable = markets.dropna(subset=list(required)).copy()
+            usable["_day"] = pd.to_datetime(usable[date_col]).dt.date
+            usable["_y_home_win"] = (
+                usable["home_score"] > usable["away_score"]).astype(float)
+            for day, grp in usable.groupby("_day"):
+                if len(grp) < min_games_per_day:
+                    excluded += 1
+                    continue
+                series.append({
+                    "date": str(day),
+                    "brier": round(float(brier_score(
+                        [float(v) for v in grp[prob_col]],
+                        [float(v) for v in grp["_y_home_win"]])), 5),
+                    "games": int(len(grp)),
+                })
+            series.sort(key=lambda r: r["date"])
+    n_games = int(sum(r["games"] for r in series))
+    return {
+        "window_days": window_days,
+        "min_games_per_day": min_games_per_day,
+        "source_column": "home_win_prob_model",
+        "calibration": "prequential",
+        "map_scope_note": map_scope_note,
+        "calibrator_is_identity": False,
+        "n_points": len(series),
+        "n_games_total": n_games,
+        "excluded_sparse_days": excluded,
+        "history_mean_brier": (round(float(np.mean(
+            [r["brier"] for r in series])), 5) if series else None),
+        "series": series,
+        "n_games_in_series": n_games,
+    }
 
 
 def pooled_metrics(probs, outcomes) -> dict:

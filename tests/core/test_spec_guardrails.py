@@ -831,13 +831,14 @@ def test_registry_entries_all_have_active_writers():
 
 
 def test_registry_size_pinned():
-    """B-005: the registry size is pinned at 56 — 14 per sport (13 MLB
-    primaries + markets meta; 10 NNX artifact primaries + markets meta
-    + 3 runner-side OOF/fold stores). Any change to the registry is a
-    reviewed registry change, never silent growth."""
+    """B-005: the registry size is pinned at 62 — 14 MLB (13 primaries
+    + markets meta) and 16 per NNX sport (10 artifact primaries +
+    markets meta + 3 runner-side OOF/fold stores + the r5 §22.1
+    standalone rolling_brier / features_metadata). Any change to the
+    registry is a reviewed registry change, never silent growth."""
     import importlib
     mod = importlib.import_module("core.contracts.artifact_schema")
-    assert len(mod.REGISTRY) == mod.EXPECTED_REGISTRY_SIZE == 56
+    assert len(mod.REGISTRY) == mod.EXPECTED_REGISTRY_SIZE == 62
 
 
 def test_reserved_durable_names_have_no_registry_entries():

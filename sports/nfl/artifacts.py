@@ -19,6 +19,49 @@ import pandas as pd
 
 from core.contracts import require_features_metadata
 from core.contracts import validate_record
+
+#: Key sets of the standalone monitor siblings (r5 §22.1) — identical to
+#: MLB's artifact contract (the shared schema in
+#: ``core.contracts.artifact_schema``).
+ROLLING_BRIER_KEYS = ["window_days", "min_games_per_day", "source_column",
+                      "calibration", "map_scope_note", "calibrator_is_identity",
+                      "n_points", "n_games_total", "excluded_sparse_days",
+                      "history_mean_brier", "series", "n_games_in_series"]
+FEATURES_METADATA_KEYS = ["generated_for", "n_features", "warnings",
+                          "features", "categorical_context"]
+
+
+def persist_rolling_brier(payload: dict, target_date_str: str,
+                          out_dir: Path | str | None = None) -> Path:
+    """Standalone ``nfl_rolling_brier_<date>.json`` (§22.1 sibling of the
+    nested monitor field; moneyline semantics via
+    ``core.evaluation.probabilistic_metrics.rolling_brier_payload``)."""
+    missing = [k for k in ROLLING_BRIER_KEYS if k not in payload]
+    if missing:
+        raise ValueError(f"rolling_brier payload missing keys: {missing}")
+    out_path = (Path(out_dir or ".")
+                / f"nfl_rolling_brier_{target_date_str}.json")
+    validate_record("nfl", "rolling_brier", payload)
+    path = Path(out_path)
+    path.write_text(json.dumps(_json_safe(payload), indent=1,
+                               allow_nan=False))
+    return out_path
+
+
+def persist_features_metadata(payload: dict, target_date_str: str,
+                              out_dir: Path | str | None = None) -> Path:
+    """Standalone ``nfl_features_metadata_<date>.json`` (§22.1 sibling;
+    same canonical document the monitor embeds and feature_v1 derives)."""
+    missing = [k for k in FEATURES_METADATA_KEYS if k not in payload]
+    if missing:
+        raise ValueError(f"features_metadata payload missing keys: {missing}")
+    out_path = (Path(out_dir or ".")
+                / f"nfl_features_metadata_{target_date_str}.json")
+    validate_record("nfl", "features_metadata", payload)
+    path = Path(out_path)
+    path.write_text(json.dumps(_json_safe(payload), indent=1,
+                               allow_nan=False))
+    return out_path
 from sports.nfl.features.registry import MONEYLINE_CONTRACT_VERSION
 
 logger = logging.getLogger(__name__)

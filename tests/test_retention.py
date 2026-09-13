@@ -32,19 +32,20 @@ EMISSIONS: dict[str, tuple[str, ...]] = {
         "nfl_moneyline_v1", "nfl_calibration", "nfl_predictions_history",
         "nfl_power_rankings", "nfl_run_engine_markets", "nfl_run_engine_monitor",
         "nfl_qb_matchup", "nfl_feature_v1", "nfl_model_monitor", "nfl_shap_game",
-        "nfl_feature_drift", "nfl_feature_coverage",
+        "nfl_feature_drift", "nfl_feature_coverage", "nfl_rolling_brier",
+        "nfl_features_metadata",
     ),
     "nhl": (
         "nhl_moneyline_v1", "nhl_calibration", "nhl_predictions_history",
         "nhl_power_rankings", "nhl_run_engine_markets", "nhl_run_engine_monitor",
         "nhl_goalie_matchup", "nhl_feature_v1", "nhl_model_monitor",
-        "nhl_shap_game",
+        "nhl_shap_game", "nhl_rolling_brier", "nhl_features_metadata",
     ),
     "nba": (
         "nba_moneyline_v1", "nba_calibration", "nba_predictions_history",
         "nba_power_rankings", "nba_player_matchup", "nba_feature_v1",
         "nba_model_monitor", "nba_run_engine_markets", "nba_run_engine_monitor",
-        "nba_shap_game",
+        "nba_shap_game", "nba_rolling_brier", "nba_features_metadata",
     ),
 }
 

@@ -85,6 +85,8 @@ DEFAULT_ALLOWLISTED_FAMILIES = (
     "nfl_shap_game",
     "nfl_feature_drift",
     "nfl_feature_coverage",
+    "nfl_rolling_brier",
+    "nfl_features_metadata",
     # --- NHL (sport-prefixed, exact emitted names) ---
     "nhl_moneyline_v1",
     "nhl_calibration",
@@ -96,6 +98,8 @@ DEFAULT_ALLOWLISTED_FAMILIES = (
     "nhl_feature_v1",
     "nhl_model_monitor",
     "nhl_shap_game",
+    "nhl_rolling_brier",
+    "nhl_features_metadata",
     # --- NBA (sport-prefixed, exact emitted names) ---
     "nba_moneyline_v1",
     "nba_calibration",
@@ -107,6 +111,8 @@ DEFAULT_ALLOWLISTED_FAMILIES = (
     "nba_run_engine_markets",
     "nba_run_engine_monitor",
     "nba_shap_game",
+    "nba_rolling_brier",
+    "nba_features_metadata",
 )
 
 
