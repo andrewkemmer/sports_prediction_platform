@@ -1,0 +1,151 @@
+{
+ "date": "20270106",
+ "trained_at": "2027-01-06T12:00:00+00:00",
+ "n_games": 240,
+ "created_utc": "2027-01-06T12:00:00+00:00",
+ "config": {
+  "feature_set_version": "nhl-moneyline-v75",
+  "warmup_seasons": [
+   2015
+  ],
+  "oof_first_season": 2016,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ },
+ "metrics": {
+  "auc": 0.7021,
+  "brier": 0.2152,
+  "logloss": 0.6217,
+  "ece": 0.0128,
+  "ece_calibrated": 0.0071,
+  "auc_calibrated": 0.7021,
+  "brier_calibrated": 0.215,
+  "logloss_calibrated": 0.6214
+ },
+ "calibration": {
+  "method": "platt",
+  "params": {
+   "a": 0.9301,
+   "b": -0.0198,
+   "n": 240
+  },
+  "metrics_raw": {
+   "brier": 0.2152,
+   "logloss": 0.6217,
+   "ece": 0.0128
+  },
+  "metrics_calibrated": {
+   "brier": 0.215,
+   "logloss": 0.6214,
+   "ece": 0.0071
+  },
+  "calibration_buckets_calibrated": [
+   {
+    "bucket": "50\u201360%",
+    "mean_predicted": 0.5512,
+    "mean_actual": 0.5401,
+    "count": 1204,
+    "gap": 0.0111
+   },
+   {
+    "bucket": "60\u201370%",
+    "mean_predicted": 0.6478,
+    "mean_actual": 0.6522,
+    "count": 987,
+    "gap": -0.0044
+   },
+   {
+    "bucket": "70\u201380%",
+    "mean_predicted": 0.744,
+    "mean_actual": 0.7381,
+    "count": 512,
+    "gap": 0.0059
+   },
+   {
+    "bucket": "80\u201390%",
+    "mean_predicted": 0.8415,
+    "mean_actual": 0.8502,
+    "count": 178,
+    "gap": -0.0087
+   },
+   {
+    "bucket": "90\u2013100%",
+    "mean_predicted": 0.9188,
+    "mean_actual": 0.8901,
+    "count": 31,
+    "gap": 0.0287
+   }
+  ]
+ },
+ "calibration_buckets": [
+  {
+   "bucket": "50\u201360%",
+   "mean_predicted": 0.5512,
+   "mean_actual": 0.5401,
+   "count": 1204,
+   "gap": 0.0111
+  },
+  {
+   "bucket": "60\u201370%",
+   "mean_predicted": 0.6478,
+   "mean_actual": 0.6522,
+   "count": 987,
+   "gap": -0.0044
+  },
+  {
+   "bucket": "70\u201380%",
+   "mean_predicted": 0.744,
+   "mean_actual": 0.7381,
+   "count": 512,
+   "gap": 0.0059
+  },
+  {
+   "bucket": "80\u201390%",
+   "mean_predicted": 0.8415,
+   "mean_actual": 0.8502,
+   "count": 178,
+   "gap": -0.0087
+  },
+  {
+   "bucket": "90\u2013100%",
+   "mean_predicted": 0.9188,
+   "mean_actual": 0.8901,
+   "count": 31,
+   "gap": 0.0287
+  }
+ ],
+ "daily": [
+  {
+   "date": "20261018",
+   "n_games": 3,
+   "wins": 2,
+   "losses": 1,
+   "metrics": {
+    "auc": 0.7,
+    "brier": 0.21,
+    "logloss": 0.62,
+    "ece": 0.03
+   }
+  },
+  {
+   "date": "20261019",
+   "n_games": 3,
+   "wins": 1,
+   "losses": 2,
+   "metrics": {
+    "auc": 0.68,
+    "brier": 0.22,
+    "logloss": 0.63,
+    "ece": 0.04
+   }
+  }
+ ]
+}

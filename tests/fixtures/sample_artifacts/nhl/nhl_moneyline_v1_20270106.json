@@ -1,0 +1,81 @@
+{
+ "created_utc": "2027-01-06T12:00:00+00:00",
+ "config": {
+  "feature_set_version": "nhl-moneyline-v75",
+  "warmup_seasons": [
+   2015
+  ],
+  "oof_first_season": 2016,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ },
+ "slate_date": "2026-10-20",
+ "n_games": 3,
+ "games": [
+  {
+   "game_id": "202601BOSTOR",
+   "game_date": "2026-10-20",
+   "start_time_utc": "2026-10-20T23:00:00Z",
+   "home_team": "TOR",
+   "away_team": "BOS",
+   "home_team_name": "TOR",
+   "away_team_name": "BOS",
+   "venue": "TOR Arena",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.587,
+   "away_win_prob_model": 0.41300000000000003,
+   "model_pick": "TOR",
+   "model_correct": null,
+   "home_record": "10-6-2",
+   "away_record": "9-7-2"
+  },
+  {
+   "game_id": "202602NYRMTL",
+   "game_date": "2026-10-20",
+   "start_time_utc": "2026-10-21T00:00:00Z",
+   "home_team": "MTL",
+   "away_team": "NYR",
+   "home_team_name": "MTL",
+   "away_team_name": "NYR",
+   "venue": "MTL Arena",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.508,
+   "away_win_prob_model": 0.492,
+   "model_pick": "MTL",
+   "model_correct": null,
+   "home_record": "10-6-2",
+   "away_record": "9-7-2"
+  },
+  {
+   "game_id": "202603VGKTBL",
+   "game_date": "2026-10-20",
+   "start_time_utc": "2026-10-20T19:00:00Z",
+   "home_team": "TBL",
+   "away_team": "VGK",
+   "home_team_name": "TBL",
+   "away_team_name": "VGK",
+   "venue": "TBL Arena",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.461,
+   "away_win_prob_model": 0.5389999999999999,
+   "model_pick": "VGK",
+   "model_correct": null,
+   "home_record": "10-6-2",
+   "away_record": "9-7-2"
+  }
+ ]
+}

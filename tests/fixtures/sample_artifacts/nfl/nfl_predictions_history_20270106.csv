@@ -1,0 +1,4 @@
+game_id,game_date,home_team,away_team,home_score,away_score,home_win,home_win_prob_model,home_win_prob_model_calibrated,model_pick,actual_winner,correct
+202601BUFKC,2026-10-20,KC,BUF,24,17,1.0,0.615,0.6273,KC,KC,true
+202602DALPHI,2026-10-20,PHI,DAL,10,20,0.0,0.532,0.5426,PHI,DAL,false
+202603NYGSF,2026-10-20,SF,NYG,24,17,1.0,0.478,0.4876,NYG,SF,false

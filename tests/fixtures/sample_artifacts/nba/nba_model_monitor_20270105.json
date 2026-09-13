@@ -60,6 +60,10 @@
   }
  ],
  "rolling_brier": [],
+ "rolling_brier_meta": {"window_days": 14, "min_games": 20},
+ "features_metadata": [],
+ "feature_coverage": [],
+ "fold_geometry": {"n_folds": 2, "val_share": 0.2},
  "brier_baseline": 0.4355363767128473,
  "brier_baseline_label": "Constant home-edge",
  "feature_drift": [],

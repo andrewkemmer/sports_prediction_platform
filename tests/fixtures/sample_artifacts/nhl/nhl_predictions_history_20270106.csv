@@ -1,0 +1,4 @@
+game_id,game_date,home_team,away_team,home_score,away_score,home_win,home_win_prob_model,home_win_prob_model_calibrated,model_pick,actual_winner,correct
+202601BOSTOR,2026-10-20,TOR,BOS,24,17,1.0,0.587,0.5987,TOR,TOR,true
+202602NYRMTL,2026-10-20,MTL,NYR,10,20,0.0,0.508,0.5182,MTL,NYR,false
+202603VGKTBL,2026-10-20,TBL,VGK,24,17,1.0,0.461,0.4702,VGK,TBL,false

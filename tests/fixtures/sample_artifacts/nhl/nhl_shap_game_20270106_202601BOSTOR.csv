@@ -1,0 +1,4 @@
+feature,shap_value,signed_effect,perspective_team
+elo_diff,0.131937,positive,TOR
+rest_days_diff,-0.029233,negative,TOR
+b2b_home,0.027501,positive,TOR

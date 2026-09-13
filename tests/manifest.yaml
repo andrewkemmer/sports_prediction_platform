@@ -59,6 +59,29 @@ fixtures_data:
   - tests/fixtures/sample_artifacts/nba/nba_run_engine_markets_20270105.meta.json
   - tests/fixtures/sample_artifacts/nba/nba_run_engine_monitor_20270105.json
   - tests/fixtures/sample_artifacts/nba/nba_shap_game_20270105_0022600001.csv
+  # Phase 7.6-B committed sample artifacts (demo-mode fixtures; deterministic
+  # generators in tests/sample_artifact_fixtures.py, pinned by
+  # test_committed_sample_artifacts_match_generator in tests/test_frontend.py).
+  - tests/fixtures/sample_artifacts/nfl/nfl_calibration_20270106.json
+  - tests/fixtures/sample_artifacts/nfl/nfl_model_monitor_20270106.json
+  - tests/fixtures/sample_artifacts/nfl/nfl_moneyline_v1_20270106.json
+  - tests/fixtures/sample_artifacts/nfl/nfl_power_rankings_20270106.csv
+  - tests/fixtures/sample_artifacts/nfl/nfl_predictions_history_20270106.csv
+  - tests/fixtures/sample_artifacts/nfl/nfl_qb_matchup_20270106.json
+  - tests/fixtures/sample_artifacts/nfl/nfl_run_engine_markets_20270106.csv
+  - tests/fixtures/sample_artifacts/nfl/nfl_run_engine_markets_20270106.meta.json
+  - tests/fixtures/sample_artifacts/nfl/nfl_run_engine_monitor_20270106.json
+  - tests/fixtures/sample_artifacts/nfl/nfl_shap_game_20270106_202601BUFKC.csv
+  - tests/fixtures/sample_artifacts/nhl/nhl_calibration_20270106.json
+  - tests/fixtures/sample_artifacts/nhl/nhl_goalie_matchup_20270106.json
+  - tests/fixtures/sample_artifacts/nhl/nhl_model_monitor_20270106.json
+  - tests/fixtures/sample_artifacts/nhl/nhl_moneyline_v1_20270106.json
+  - tests/fixtures/sample_artifacts/nhl/nhl_power_rankings_20270106.csv
+  - tests/fixtures/sample_artifacts/nhl/nhl_predictions_history_20270106.csv
+  - tests/fixtures/sample_artifacts/nhl/nhl_run_engine_markets_20270106.csv
+  - tests/fixtures/sample_artifacts/nhl/nhl_run_engine_markets_20270106.meta.json
+  - tests/fixtures/sample_artifacts/nhl/nhl_run_engine_monitor_20270106.json
+  - tests/fixtures/sample_artifacts/nhl/nhl_shap_game_20270106_202601BOSTOR.csv
   # Bounded committed raw datasets backing the permanent fold/matrix evidence
   # tests (Phase 7.5e-A rebaseline). One compact Parquet per sport; read-only
   # inputs for tests/raw_store.py, reproducible from the per-sport support
@@ -129,6 +152,13 @@ files:
     description: >
       Materializes the committed bounded raw fixtures into the gitignored
       store (idempotent, never clobbers).
+    topics: []
+  - path: tests/sample_artifact_fixtures.py
+    class: support
+    description: >
+      Deterministic committed NFL/NHL sample-artifact generators (Phase
+      7.6-B demo-mode fixtures; fixed literals, no wall clock, no network;
+      byte-identical across calls and pinned against the committed files).
     topics: []
 
   # --- core production-contract tests ---

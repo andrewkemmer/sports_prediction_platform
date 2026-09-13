@@ -1124,9 +1124,9 @@ def test_slate_window_anchors_are_window_derived_per_sport():
     its slate-gate anchor from its SERVING WINDOW via ``window_anchor`` —
     one argument, an attribute of the window object, never a literal date
     and never wall clock — and passes an explicit ``resolution=`` /
-    ``start_col=`` matched to the sport's start data (mlb instant via
-    start_time_utc; nfl/nhl/nba date until the 7.6 start-timestamp
-    normalization).
+    ``start_col=`` matched to the sport's start data (mlb/nhl/nba instant
+    via start_time_utc since the Phase 7.6-B rebinding; nfl date via
+    gameday until its start-timestamp construction lands).
 
     AST-pinned: the ``window_anchor`` argument must be an attribute access
     on the window object (``window.start_date`` / ``pred_window

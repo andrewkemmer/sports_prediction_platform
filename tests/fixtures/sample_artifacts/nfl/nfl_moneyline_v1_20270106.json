@@ -1,0 +1,81 @@
+{
+ "created_utc": "2027-01-06T12:00:00+00:00",
+ "config": {
+  "feature_set_version": "nfl-moneyline-v75",
+  "warmup_seasons": [
+   2015
+  ],
+  "oof_first_season": 2016,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ },
+ "slate_date": "2026-10-20",
+ "n_games": 3,
+ "games": [
+  {
+   "game_id": "202601BUFKC",
+   "game_date": "2026-10-20",
+   "start_time_utc": "2026-10-20T17:00:00Z",
+   "home_team": "KC",
+   "away_team": "BUF",
+   "home_team_name": "Kansas City Chiefs",
+   "away_team_name": "Buffalo Bills",
+   "venue": "KC Stadium",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.615,
+   "away_win_prob_model": 0.385,
+   "model_pick": "KC",
+   "model_correct": null,
+   "home_record": "5-2",
+   "away_record": "4-3"
+  },
+  {
+   "game_id": "202602DALPHI",
+   "game_date": "2026-10-20",
+   "start_time_utc": "2026-10-20T21:05:00Z",
+   "home_team": "PHI",
+   "away_team": "DAL",
+   "home_team_name": "Philadelphia Eagles",
+   "away_team_name": "Dallas Cowboys",
+   "venue": "PHI Stadium",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.532,
+   "away_win_prob_model": 0.46799999999999997,
+   "model_pick": "PHI",
+   "model_correct": null,
+   "home_record": "5-2",
+   "away_record": "4-3"
+  },
+  {
+   "game_id": "202603NYGSF",
+   "game_date": "2026-10-20",
+   "start_time_utc": "2026-10-21T00:15:00Z",
+   "home_team": "SF",
+   "away_team": "NYG",
+   "home_team_name": "San Francisco 49ers",
+   "away_team_name": "New York Giants",
+   "venue": "SF Stadium",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.478,
+   "away_win_prob_model": 0.522,
+   "model_pick": "NYG",
+   "model_correct": null,
+   "home_record": "5-2",
+   "away_record": "4-3"
+  }
+ ]
+}

@@ -1,0 +1,48 @@
+{
+ "created_utc": "2027-01-06T12:00:00+00:00",
+ "n_games": 3,
+ "games": [
+  {
+   "game_id": "202601BOSTOR",
+   "game_date": "2026-10-20",
+   "home_team": "TOR",
+   "away_team": "BOS",
+   "goalie_home_name": "G TOR",
+   "goalie_home_save_pct": 0.917,
+   "goalie_home_gaa": 2.31,
+   "goalie_home_starts": 12,
+   "goalie_away_name": "G BOS",
+   "goalie_away_save_pct": 0.91,
+   "goalie_away_gaa": 2.58,
+   "goalie_away_starts": 11
+  },
+  {
+   "game_id": "202602NYRMTL",
+   "game_date": "2026-10-20",
+   "home_team": "MTL",
+   "away_team": "NYR",
+   "goalie_home_name": "G MTL",
+   "goalie_home_save_pct": 0.918,
+   "goalie_home_gaa": 2.2800000000000002,
+   "goalie_home_starts": 11,
+   "goalie_away_name": "G NYR",
+   "goalie_away_save_pct": 0.912,
+   "goalie_away_gaa": 2.54,
+   "goalie_away_starts": 10
+  },
+  {
+   "game_id": "202603VGKTBL",
+   "game_date": "2026-10-20",
+   "home_team": "TBL",
+   "away_team": "VGK",
+   "goalie_home_name": "G TBL",
+   "goalie_home_save_pct": 0.919,
+   "goalie_home_gaa": 2.25,
+   "goalie_home_starts": 10,
+   "goalie_away_name": "G VGK",
+   "goalie_away_save_pct": 0.914,
+   "goalie_away_gaa": 2.5,
+   "goalie_away_starts": 9
+  }
+ ]
+}

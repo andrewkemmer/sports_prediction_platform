@@ -1,0 +1,77 @@
+{
+ "schema": "run-engine-monitor/v2",
+ "date": "2027-01-06",
+ "markets_persisted": true,
+ "markets_persist_error": null,
+ "winner_cards": {
+  "over_under": {
+   "n": 240,
+   "brier": 0.2491,
+   "logloss": 0.6923,
+   "predicted_mean": 0.4877
+  },
+  "puck_line": {
+   "n": 240,
+   "brier": 0.2491,
+   "logloss": 0.6923,
+   "predicted_mean": 0.4877
+  },
+  "derived_ml": {
+   "n": 240,
+   "brier": 0.2491,
+   "logloss": 0.6923,
+   "predicted_mean": 0.4877,
+   "ml_reference": {
+    "source": "ml_win_prob",
+    "n": 240,
+    "win_rate": 0.6312,
+    "predicted_mean": 0.5402
+   }
+  }
+ },
+ "slate_history": [
+  {
+   "card": "over_under",
+   "date": "2027-01-06",
+   "n": 240,
+   "brier": 0.2491,
+   "logloss": 0.6923,
+   "predicted_mean": 0.4877
+  },
+  {
+   "card": "puck_line",
+   "date": "2027-01-06",
+   "n": 240,
+   "brier": 0.2491,
+   "logloss": 0.6923,
+   "predicted_mean": 0.4877
+  },
+  {
+   "card": "derived_ml",
+   "date": "2027-01-06",
+   "n": 240,
+   "brier": 0.2491,
+   "logloss": 0.6923,
+   "predicted_mean": 0.4877
+  }
+ ],
+ "fit": {},
+ "market_metrics": {},
+ "config": {
+  "feature_set_version": "nhl-moneyline-v75",
+  "warmup_seasons": [
+   2015
+  ],
+  "oof_first_season": 2016,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ }
+}

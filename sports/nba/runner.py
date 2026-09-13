@@ -280,12 +280,16 @@ def run_nba_production(
         # NOT §7.1 PIT evidence.
         # Deterministic serving-window-derived anchor (never wall clock):
         # the instant the run window opens (window.start_date).
-        # Date-resolution comparison: NBA starts are date-granularity
-        # today (instant starts = 7.6 start-timestamp normalization).
+        # Instant-resolution comparison (Phase 7.6-B): the NBA schedule
+        # already carries true UTC start instants (ingestion maps
+        # gameDateTimeUTC into start_time_utc), so the gate compares the
+        # instant, not the calendar date. NFL remains date-granularity
+        # until its start-timestamp construction lands (7.6 carry-forward).
         slate_report = validate_slate_window(
             slate,
             anchor_utc=window_anchor(window.start_date.replace("-", "")),
-            start_col="game_date", resolution="date", label="nba slate")
+            start_col="start_time_utc", resolution="instant",
+            label="nba slate")
         if not slate_report.ok:
             raise NBARunnerError(
                 f"slate window gate failed: {slate_report.violations[:3]}")

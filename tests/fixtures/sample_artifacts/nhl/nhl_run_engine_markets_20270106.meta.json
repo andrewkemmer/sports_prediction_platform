@@ -1,0 +1,39 @@
+{
+ "record": "nhl_run_engine_markets",
+ "written_utc": "2027-01-06T12:00:00+00:00",
+ "config": {
+  "feature_set_version": "nhl-moneyline-v75",
+  "warmup_seasons": [
+   2015
+  ],
+  "oof_first_season": 2016,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ },
+ "columns": 93,
+ "n_rows": 6,
+ "n_oof": 6,
+ "n_slate": 3,
+ "grids": {
+  "spread": [
+   -4,
+   4
+  ],
+  "total": [
+   5,
+   12
+  ],
+  "half_stops": [
+   -1.5,
+   1.5
+  ]
+ }
+}

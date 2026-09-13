@@ -24,6 +24,17 @@ FIXTURES = ROOT / "tests" / "fixtures"
 SPORTS = ("mlb", "nfl", "nhl", "nba")
 
 # Loader family → schema-fixture artifact name per sport.
+# The markets CSV carries the frontend-consumed columns (the page selects
+# with ``keep = [c for c in cols if c in markets.columns]``), NOT the full
+# 241/93-column production schema — samples mirror the loader contract.
+MARKETS_PAGE_CONSUMED = (
+    "game_id", "gameday", "home_team", "away_team", "mu_total",
+    "fair_total", "total_line", "p_over_offered", "p_push_total_offered",
+    "mu_margin", "fair_spread", "spread_line", "p_cover_offered",
+    "p_push_offered", "p_home_win", "p_away_win", "derived_ml", "kind",
+    "decided", "home_score", "p_over_fair", "y_over_fair", "p_cover_fair",
+    "y_cover_fair", "y_push_spread_fair", "y_home_win", "frame_view",
+)
 FAMILY_TO_SCHEMA = {
     "mlb": {
         "games": "todays_games",
@@ -603,3 +614,134 @@ def test_board_dates_sorted():
     for sport in SPORTS:
         dates = fu.board_dates(sport)
         assert dates == sorted(dates)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7.6-B: committed sample artifacts (NFL/NHL), demo-mode loader
+# validation for all four sports, and MLB's deterministic empty case
+# ---------------------------------------------------------------------------
+def test_committed_sample_artifacts_match_generator():
+    """The committed NFL/NHL sample artifacts are byte-pinned to the
+    deterministic generators in tests/sample_artifact_fixtures.py: regenerating
+    in-memory reproduces the committed bytes exactly (fixed literals, no wall
+    clock, no network — same provenance pattern as the 7.5e-A raw fixtures)."""
+    from tests.sample_artifact_fixtures import nfl_samples, nhl_samples
+    for sport, generated in (("nfl", nfl_samples()), ("nhl", nhl_samples())):
+        base = sports_config.sample_artifacts_dir() / sport
+        assert base.is_dir(), sport
+        committed = {p.name: p for p in base.iterdir() if p.is_file()}
+        assert set(committed) == set(generated), (
+            sport, sorted(set(committed) ^ set(generated)))
+        for name, text in generated.items():
+            assert committed[name].read_text(encoding="utf-8") == text, (
+                f"{sport}/{name}: committed file drifted from the generator")
+
+
+def _demo_only(monkeypatch, tmp_path):
+    """Point the real data_delivery dir at an empty location and enable
+    FRONTEND_DEMO_MODE=1 so loaders resolve the committed samples."""
+    monkeypatch.setattr(sports_config, "data_delivery_dir",
+                        lambda s: tmp_path / "missing_delivery")
+    monkeypatch.setenv("FRONTEND_DEMO_MODE", "1")
+
+
+@pytest.mark.parametrize("sport", ("nfl", "nhl", "nba"))
+def test_sample_artifacts_load_through_production_loaders(sport, monkeypatch,
+                                                         tmp_path):
+    """Demo-mode Path 2 for the three JSON-artifact sports: every loader
+    family resolves its committed sample through the PRODUCTION loader path
+    and returns schema-conformant content (columns/keys from the sport's
+    schema fixture), never fabricated fields."""
+    _demo_only(monkeypatch, tmp_path)
+    fx = json.loads((FIXTURES / f"{sport}_artifact_schemas.json").read_text())
+    # shap_game files are keyed per game; resolve a real sample game id
+    # through the loader path first (as the Todays Games page does).
+    ml_games = fu.load_json_games(sport, "moneyline_json")
+    assert not ml_games.empty, sport
+    sample_game_id = str(ml_games["game_id"].iloc[0])
+
+    # Families with no committed sample for a sport (NBA predates
+    # predictions_history samples) are asserted at the loader no-data
+    # contract instead — samples are never synthesized retroactively.
+    _no_sample_families = {"nba": {"predictions_history"}}
+    for family, artifact in FAMILY_TO_SCHEMA[sport].items():
+        if family in _no_sample_families.get(sport, set()):
+            assert fu.load_csv_artifact(sport, family).empty, \
+                (sport, family)
+            continue
+        spec = fx["artifacts"][artifact]
+        if family in ("calibration_json", "model_monitor", "markets_monitor"):
+            data = fu.load_json_artifact(sport, family)
+            assert data is not None, (sport, family)
+            # Assert the loader-consumed/frontend-required surface, not the
+            # full captured key set (the pre-existing NBA samples predate
+            # several captured keys and are historical fixtures).
+            for key in (spec.get("frontend_required") or []):
+                assert key in data, (sport, artifact, key)
+        elif family == "moneyline_json":
+            games = fu.load_json_games(sport, family)
+            assert not games.empty, (sport, family)
+            for col in (spec.get("frontend_required") or []):
+                assert col in games.columns, (sport, artifact, col)
+            assert games["home_win_prob_model"].between(0, 1).all()
+            assert games["away_win_prob_model"].between(0, 1).all()
+        elif family == "participant_matchup":
+            panel = fu.load_participant_matchup(sport)
+            assert not panel.empty, (sport, family)
+            for col in (spec.get("columns") or []):
+                assert col in panel.columns, (sport, artifact, col)
+        elif family == "markets_meta":
+            data = fu.load_json_artifact(sport, family)
+            assert data is not None and "grids" in data, (sport, family)
+        elif family == "shap_game":
+            df = fu.load_shap(sport, sample_game_id)
+            assert not df.empty, (sport, family)
+            for col in (spec.get("columns") or []):
+                assert col in df.columns, (sport, artifact, col)
+        else:
+            df = fu.load_csv_artifact(sport, family)
+            assert not df.empty, (sport, family)
+            if family == "markets":
+                # Page-consumed columns, not the full 241/93-col schema.
+                missing = [c for c in MARKETS_PAGE_CONSUMED
+                           if c not in df.columns]
+                assert not missing, (sport, artifact, missing)
+            else:
+                for col in (spec.get("columns") or []):
+                    assert col in df.columns, (sport, artifact, col)
+
+
+def test_samples_served_only_under_demo_mode(monkeypatch, tmp_path):
+    """The committed NFL/NHL samples are invisible without FRONTEND_DEMO_MODE=1:
+    with no real artifact present and the flag off, loaders return the no-data
+    state (samples are never a silent fallback)."""
+    monkeypatch.setattr(sports_config, "data_delivery_dir",
+                        lambda s: tmp_path / "missing_delivery")
+    monkeypatch.delenv("FRONTEND_DEMO_MODE", raising=False)
+    for sport in ("nfl", "nhl"):
+        assert fu.load_power_rankings(sport).empty, sport
+        assert fu.load_json_games(sport, "moneyline_json").empty, sport
+        assert fu.load_calibration(sport) is None, sport
+        assert fu.load_model_monitor(sport) is None, sport
+        assert fu.artifact_source(sport, "power_rankings") == "missing", sport
+
+
+def test_mlb_empty_case_is_the_no_data_contract(monkeypatch, tmp_path):
+    """MLB ships no sample artifacts BY RULING: with no real artifacts and
+    demo mode on, every MLB loader still resolves the deterministic empty
+    case (empty frame / None) — the page-level no-data state."""
+    _demo_only(monkeypatch, tmp_path)
+    assert fu.load_power_rankings("mlb").empty
+    assert fu.load_predictions_history("mlb").empty
+    assert fu.load_json_games("mlb", "games").empty
+    assert fu.load_calibration("mlb") is None
+    assert fu.load_model_monitor("mlb") is None
+    assert fu.load_participant_matchup("mlb").empty  # inline-source sport
+    assert fu.load_shap("mlb", "__none__").empty
+    assert fu.board_dates("mlb") == []
+    assert fu.has_any_artifacts("mlb") is False
+    for family in ("games", "power_rankings", "calibration_json",
+                   "model_monitor", "markets", "shap_game"):
+        assert fu.artifact_source("mlb", family) == "missing", family
+    # ...and the banner declines: no sample family exists to banner about.
+    assert fu.demo_banner_html("mlb", ["power_rankings"]) is None

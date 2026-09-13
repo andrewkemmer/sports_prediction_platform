@@ -1,0 +1,60 @@
+{
+ "created_utc": "2027-01-06T12:00:00+00:00",
+ "n_games": 3,
+ "games": [
+  {
+   "game_id": "202601BUFKC",
+   "gameday": "2026-10-20",
+   "home_team": "KC",
+   "away_team": "BUF",
+   "qb_home_name": "QB KC",
+   "qb_home_rating": 100.2,
+   "qb_home_td_per_game": 2.1,
+   "qb_home_cmp_pct": 66.8,
+   "qb_home_yards_per_attempt": 8.2,
+   "qb_home_ints": 0.6,
+   "qb_away_name": "QB BUF",
+   "qb_away_rating": 94.7,
+   "qb_away_td_per_game": 1.7,
+   "qb_away_cmp_pct": 63.1,
+   "qb_away_yards_per_attempt": 7.4,
+   "qb_away_ints": 0.9
+  },
+  {
+   "game_id": "202602DALPHI",
+   "gameday": "2026-10-20",
+   "home_team": "PHI",
+   "away_team": "DAL",
+   "qb_home_name": "QB PHI",
+   "qb_home_rating": 101.2,
+   "qb_home_td_per_game": 2.1,
+   "qb_home_cmp_pct": 66.8,
+   "qb_home_yards_per_attempt": 8.2,
+   "qb_home_ints": 0.6,
+   "qb_away_name": "QB DAL",
+   "qb_away_rating": 95.7,
+   "qb_away_td_per_game": 1.7,
+   "qb_away_cmp_pct": 63.1,
+   "qb_away_yards_per_attempt": 7.4,
+   "qb_away_ints": 0.9
+  },
+  {
+   "game_id": "202603NYGSF",
+   "gameday": "2026-10-20",
+   "home_team": "SF",
+   "away_team": "NYG",
+   "qb_home_name": "QB SF",
+   "qb_home_rating": 102.2,
+   "qb_home_td_per_game": 2.1,
+   "qb_home_cmp_pct": 66.8,
+   "qb_home_yards_per_attempt": 8.2,
+   "qb_home_ints": 0.6,
+   "qb_away_name": "QB NYG",
+   "qb_away_rating": 96.7,
+   "qb_away_td_per_game": 1.7,
+   "qb_away_cmp_pct": 63.1,
+   "qb_away_yards_per_attempt": 7.4,
+   "qb_away_ints": 0.9
+  }
+ ]
+}
