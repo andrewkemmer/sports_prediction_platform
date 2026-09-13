@@ -152,6 +152,21 @@ them. One-off certification scripts never live in `scripts_ops/` or
 similar ad-hoc locations: `scripts_ops/` is removed by Phase 7.5c and is
 absent thereafter.
 
+The canonical **platform structure** is the nested §2 tree of the master
+specification (FULL_PROJECT_SCOPE.md v2), restated here as the binding
+target: `core/` is a package of subpackages (`config/`, `contracts/`,
+`study/`, `folds/`, `features/`, `training/`, `evaluation/`,
+`calibration/`, `validation/`, `artifacts/`, `experiments/`, `sync/`);
+each `sports/<sport>/` carries `config/` (`study.yaml` plus
+`data_sources.yaml` and `market_rules.yaml`), `ingestion/`, `features/`,
+`models/{moneyline,market}/`, and a `run_production.py` entry point;
+`frontend/` is `app.py` with `components/`, `adapters/`, and `readers/`.
+Sport-specific capabilities the §2 tree does not enumerate (per-sport
+`artifacts.py`, `optimization.py`, `adapter.py`, participant enrichment
+modules, venue reference tables) keep their consistent cross-sport
+locations and are recorded under §22. Structure moves land in the same
+phase as the governance-record updates that describe them (§21).
+
 ## 15. Experiments directory
 
 `experiments/` holds only the durable, allowlisted scaffolding:
@@ -199,9 +214,13 @@ not a scratchpad or evidence generator. The closed allowlist is
    change requires reviewer approval in the phase report.
 9. `.github/` (workflows only) is on the allowed-paths list for CI wiring.
 
-Layout rules remain: `__init__.py`, `conftest.py`, per-sport fixture
-modules (`*_fixtures.py`), `fixtures/`, and `test_*.py` files at the top
-level; a `tests/core/` subpackage for structural guardrail tests.
+Layout rules: `__init__.py`, `conftest.py`, per-sport fixture modules
+(`*_fixtures.py`), `fixtures/`, `manifest.yaml`, and `test_*.py` files at
+the top level, plus the manifest-listed subpackages `tests/core/` and the
+per-sport subpackages `tests/{mlb,nfl,nhl,nba,frontend}/` that mirror the
+§2 platform structure. New test files must land in the subpackage that
+matches the tree they test; the manifest schema lists files with their
+subpackage paths.
 Filenames carrying phase, certification, ablation, probe, or sweep
 markers are forbidden — one-off tests do not belong in the permanent
 suite.

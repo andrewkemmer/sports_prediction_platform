@@ -68,11 +68,16 @@ README_EXEMPT_TOP_LEVEL = {
 
 # ---------------------------------------------------------------------------
 # GUARDRAILS §22 — cross-sport structural alignment
+# (record rewritten by Phase r0 for the approved §2 structure rebuild;
+#  sport-internal modules are keyed by their POST-RESTRUCTURE paths so the
+#  record and the moved tree cannot disagree during r1/r2.)
 # ---------------------------------------------------------------------------
 
 #: Shared capabilities every sport package owns. Consistency here is the
 #: whole point of §22: this is the expected structure, and every deviation
 #: from it — in either direction — must be listed below with a reason.
+#: Keys are module names; ``sport_module_path`` gives the canonical
+#: location inside each sport package after the r1/r2 restructure.
 SPORT_SHARED_CAPABILITIES = {
     "artifacts.py": "artifact writers / frontend artifact payloads",
     "catalog.py": "raw-field catalog and catalog helpers",
@@ -83,6 +88,21 @@ SPORT_SHARED_CAPABILITIES = {
     "runner.py": "production run entry point (slate -> artifacts)",
     "study_config.py": "study configuration + contract binding",
     "training.py": "walk-forward training / member ensemble",
+}
+
+#: Canonical post-restructure location for each shared capability inside a
+#: sport package (r1/r2 mapping; GUARDRAILS §14). Module names stay the
+#: record keys so the comparison logic is unchanged.
+SPORT_SHARED_CAPABILITY_PATHS = {
+    "artifacts.py": "artifacts.py",
+    "catalog.py": "features/raw/catalog.py",
+    "feature_registry.py": "features/registry.py",
+    "features.py": "features/build_frame.py",
+    "ingestion.py": "ingestion/__init__.py",
+    "optimization.py": "optimization.py",
+    "runner.py": "run_production.py",
+    "study_config.py": "config/study_config.py",
+    "training.py": "models/moneyline/training.py",
 }
 
 #: Shared capabilities a sport lacks, documented rather than silently
@@ -99,18 +119,19 @@ SPORT_SHARED_CAPABILITY_GAPS: dict[str, tuple[str, ...]] = {}
 SPORT_STRUCTURE_DIFFERENCES = {
     "adapter.py": {
         "present": ("nfl", "nhl", "nba"),
-        "status": "open",
+        "status": "permitted",
         "reason": (
-            "MLB has NO SportAdapter implementation while core/contracts.py "
-            "documents 'Implementations live in sports/<sport>/adapter.py'. "
-            "Nothing in production consumes the protocol today (only the "
-            "three NNX adapters exist, and they are used by the NNX runners "
-            "and their tests), so whether MLB must implement it is "
-            "UNPROVEN. Recorded as an open finding — not a permitted "
-            "difference — owned by the Phase 7.6 structure/ownership review."
+            "TRANSITIONAL (r0/r1): the 7.6-A open finding is closed by "
+            "construction — Phase r1's approved scope adds "
+            "sports/mlb/adapter.py implementing the core.contracts.SportAdapter "
+            "protocol, at which point adapter.py becomes a shared capability "
+            "and this exception entry is removed in the same r1 commit that "
+            "lands it. Until then the record stays truthful: only the three "
+            "NNX sports carry it."
         ),
     },
     "distributions.py": {
+        "path": "models/market/distributions.py",
         "present": ("nfl", "nhl", "nba"),
         "status": "permitted",
         "reason": (
@@ -118,7 +139,8 @@ SPORT_STRUCTURE_DIFFERENCES = {
             "score distribution (game_distribution / apply_distribution) "
             "consumed by their runners and settlement tests. MLB needs no "
             "such module because it prices markets through run_engine.py "
-            "(per-game run distribution). Different modeling need."
+            "(per-game run distribution). Different modeling need. Post-r2 "
+            "path: models/market/distributions.py."
         ),
     },
     "evaluation.py": {
@@ -128,8 +150,9 @@ SPORT_STRUCTURE_DIFFERENCES = {
             "NNX evaluate OOF binary metrics (binary_metrics, including a "
             "genuine Brier) in a dedicated module used by their runners and "
             "runner tests. MLB's equivalent binary evaluation lives in "
-            "sports/mlb/run_engine.py together with the shared "
-            "core/optimization/metrics.py. Different decomposition."
+            "sports/mlb/models/market/run_engine.py together with the "
+            "shared core/evaluation/probabilistic_metrics.py. Different "
+            "decomposition."
         ),
     },
     "frames.py": {
@@ -138,10 +161,10 @@ SPORT_STRUCTURE_DIFFERENCES = {
         "reason": (
             "MLB's canonical point-in-time game frame (get_decided_frame / "
             "attach_slate_row) exists for the per-game run-engine market "
-            "path; it is imported by sports/mlb/feature_registry.py, "
-            "optimization.py and runner.py and by the pinned fold/matrix "
-            "evidence tests. The NNX pipelines build their frames in "
-            "ingestion/features instead."
+            "path; it is imported by the MLB feature registry, optimization "
+            "and production runner and by the pinned fold/matrix evidence "
+            "tests. The NNX pipelines build their frames in ingestion/ "
+            "features instead."
         ),
     },
     "goalie_enrichment.py": {
@@ -161,7 +184,9 @@ SPORT_STRUCTURE_DIFFERENCES = {
             "MLB market constants (AGREEMENT_FILTER_DELTA / K_EDGE_BAND / "
             "K_EDGE_REF) used by the run-engine agreement surface, which "
             "has no NNX counterpart; NNX carry their market constants in "
-            "their adapter/distribution modules."
+            "their adapter/distribution modules. Phase r4 migrates settlement "
+            "semantics to config/market_rules.yaml; these agreement constants "
+            "are display/edge-band tuning, not settlement semantics."
         ),
     },
     "participant_enrichment.py": {
@@ -185,13 +210,14 @@ SPORT_STRUCTURE_DIFFERENCES = {
         ),
     },
     "run_engine.py": {
+        "path": "models/market/run_engine.py",
         "present": ("mlb",),
         "status": "permitted",
         "reason": (
             "MLB's per-side run models plus NB Monte-Carlo market pricing "
             "on a frozen 53-column lambda view — the per-game run "
             "distribution MLB's markets require. NNX cover the capability "
-            "with distributions.py."
+            "with distributions.py. Post-r2 path: models/market/run_engine.py."
         ),
     },
 }
@@ -199,10 +225,46 @@ SPORT_STRUCTURE_DIFFERENCES = {
 #: Open findings are pinned so one cannot vanish silently: the computed set
 #: must equal this tuple. Promoting an entry to "permitted" requires an
 #: approved change to this constant and its reason.
-SPORT_OPEN_STRUCTURE_FINDINGS = ("adapter.py",)
+#: r0: the 7.6-A MLB-adapter open finding is CLOSED as permitted-with-owner:
+#: the r1 scope explicitly adds sports/mlb/adapter.py implementing the
+#: core.contracts.SportAdapter protocol, resolving the unproven gap by
+#: construction (TRACKER §22 entry, "r0 rewrite of the record").
+SPORT_OPEN_STRUCTURE_FINDINGS = ()
 
 # Production trees that must never import experiments/.
 PRODUCTION_TREES = ("core", "sports", "frontend")
+
+
+def _sport_modules() -> dict[str, set[str]]:
+    """Per-sport visible module names, transition-aware (r0/r1/r2).
+
+    A record key matches a sport when the module exists EITHER at its legacy
+    flat location (`sports/<sport>/<name>`) OR at its canonical post-
+    restructure path (record `path` field / SPORT_SHARED_CAPABILITY_PATHS).
+    Once the r1/r2 moves land, the legacy flat files are gone and only the
+    canonical paths match — so the same record governs both tree shapes
+    without weakening: a module that matches under NEITHER location fails.
+    """
+    sports = ("mlb", "nfl", "nhl", "nba")
+    modules: dict[str, set[str]] = {}
+    for sport in sports:
+        base = REPO_ROOT / "sports" / sport
+        present: set[str] = set()
+        # legacy flat files
+        for p in base.glob("*.py"):
+            if p.name != "__init__.py":
+                present.add(p.name)
+        # canonical post-restructure paths: record entries with a `path`
+        for name, entry in SPORT_STRUCTURE_DIFFERENCES.items():
+            rel = entry.get("path")
+            if rel and (base / rel).is_file():
+                present.add(name)
+        # canonical paths for shared capabilities
+        for name, rel in SPORT_SHARED_CAPABILITY_PATHS.items():
+            if "/" in rel and (base / rel).is_file():
+                present.add(name)
+        modules[sport] = present
+    return modules
 
 
 # ---------------------------------------------------------------------------
@@ -286,13 +348,12 @@ def test_sport_structure_matches_the_documented_exception_record():
 
     This test deliberately does NOT require identical sport packages: it
     requires that any difference is documented with a status and a reason.
+    Module discovery is transition-aware (see `_sport_modules`): a module
+    counts as present at its legacy flat path or its canonical post-
+    restructure path, and the record pins the post-restructure locations.
     """
     sports = ("mlb", "nfl", "nhl", "nba")
-    modules = {
-        sport: {p.name for p in (REPO_ROOT / "sports" / sport).glob("*.py")
-                if p.name != "__init__.py"}
-        for sport in sports
-    }
+    modules = _sport_modules()
 
     # 1. Every sport owns every shared capability, unless the gap itself is
     #    a documented exception.
@@ -352,10 +413,14 @@ def test_tests_top_level_contains_only_permitted_entries():
     base = REPO_ROOT / "tests"
     permitted_prefixes = ("__init__.py", "conftest.py", "fixtures",
                           "manifest.yaml")
+    # GUARDRAILS §16 (r0): the per-sport/frontend subpackages mirror the §2
+    # platform structure; they are manifest-listed support packages.
+    permitted_dirs = {"core", "fixtures", "mlb", "nfl", "nhl", "nba",
+                      "frontend"}
     bad = []
     for p in base.iterdir():
         name = p.name
-        if name in ("__pycache__", "core") or p.is_dir() and name == "fixtures":
+        if name in ("__pycache__",) or (p.is_dir() and name in permitted_dirs):
             continue
         if name in permitted_prefixes or name.startswith(permitted_prefixes):
             continue

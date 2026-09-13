@@ -99,6 +99,21 @@ files:
   - path: tests/core/__init__.py
     class: support
     description: core test subpackage marker
+  - path: tests/mlb/__init__.py
+    class: support
+    description: MLB test subpackage marker (GUARDRAILS §16, r0)
+  - path: tests/nfl/__init__.py
+    class: support
+    description: NFL test subpackage marker (GUARDRAILS §16, r0)
+  - path: tests/nhl/__init__.py
+    class: support
+    description: NHL test subpackage marker (GUARDRAILS §16, r0)
+  - path: tests/nba/__init__.py
+    class: support
+    description: NBA test subpackage marker (GUARDRAILS §16, r0)
+  - path: tests/frontend/__init__.py
+    class: support
+    description: frontend test subpackage marker (GUARDRAILS §16, r0)
   - path: tests/conftest.py
     class: support
     description: shared pytest configuration

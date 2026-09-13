@@ -34,6 +34,7 @@ guardrail-test strict xfails must exist here by ID.
 | 7.6e | Market contract builders + metadata wiring — **contingent**: performed **only if the Phase 7.6 conformance audit proves a market-basis contract is actually required**. Carried over from the 7.5e-C scope (which was **not** executed as Phase 7.5 work): (a) the market caller-basis audit and any rebind for `sports/{nfl,nhl,nba}/distributions.py::ScoreRegressor`, which consumes `features.tree_view` — declared **moneyline-basis** by 7.5e-B; (b) the retirement decision for the zero-caller helpers `features.linear_view` / `features.served_diff_columns`, which 7.5e-B preserved and rebound rather than deleted. No `market_contract_version` and no market metadata path were created by any Phase 7.5 sub-phase | PENDING (contingent) |
 | 7.6-A | Repository/documentation conformance (W1–W2): reconcile `README.md` and `pyproject.toml` with the actual repository and the CI-supported Python version, and add the **§22** cross-sport structural-alignment policy with its guardrail test and reviewed exception record (see *Policy changes (§21)*). **No sport module is moved, renamed, rebuilt or deleted in this workstream** | EXECUTED — policy (§22) + its guardrail test and exception record in commit `c67ca8e` (see *Policy changes (§21)*); README/pyproject reconciliation plus the README↔layout guardrail in the follow-up 7.6-A commit. `requires-python` and the Ruff target are reconciled to the CI interpreter (3.10); no sport module was moved, renamed, rebuilt or deleted |
 | 7.5c1 | Tests lockdown: permanent-test governance, closed manifest (`tests/manifest.yaml`), hygiene enforcement (`tests/core/test_manifest_hygiene.py`), duplicate consolidation (test_markets_tie_push → test_markets; test_retention_production → test_retention), CI workflow, GUARDRAILS §16 amendment | EXECUTED — landed in commit `8f97c54`, tag `phase-7.5c1-complete`; CI for this sub-phase **not re-verified here** |
+| r0 | Governance pre-flight for the §2 conformance rebuild: GUARDRAILS §14 gains the canonical nested platform-structure restatement (core subpackages; per-sport `config/`+`ingestion/`+`features/`+`models/`+`run_production.py`; frontend `app.py`+`components/`+`adapters/`+`readers/`); §16 test layout extended to the per-sport subpackages; §22 record rewritten to the post-restructure module map (sport-internal paths keyed by module name); MLB `SportAdapter` finding closed as **permitted-with-owner** (r1 adds `sports/mlb/adapter.py`); tests manifest extended for the new subpackages. Policy-first per §21; no code moved in this phase | EXECUTED (this commit) — see the §21 entry "§14 canonical structure + §16 subpackage layout" below |
 
 ## Phase 7.5 — CLOSED
 
@@ -104,7 +105,7 @@ Changing or adding a hardened rule requires a phase plan that names the
 change, the evidence that motivates it, and an updated guardrail test
 (`GUARDRAILS.md` §21). Every such change is recorded here.
 
-### §22 — Cross-sport structural alignment (added by Phase 7.6-A)
+### §22 — Cross-sport structural alignment (added by Phase 7.6-A; record rewritten by Phase r0)
 
 - **Change.** `GUARDRAILS.md` gains **§22** (exact text there): shared
   capabilities across all sports must use consistent ownership, naming,
@@ -138,36 +139,40 @@ change, the evidence that motivates it, and an updated guardrail test
   proves it: it documents permitted differences in both directions. The
   test's assertion 4 fails if no permitted difference is recorded, so the
   policy cannot degrade into a demand for identical trees.
-- **Open finding surfaced by the record — NOT blessed as permitted.**
-  `adapter.py`: MLB has no `SportAdapter` implementation while
-  `core/contracts.py` documents `Implementations live in
-  sports/<sport>/adapter.py`. Nothing in production consumes the protocol
-  (only the three NNX adapters exist, used by the NNX runners and their
-  tests), so whether MLB must implement it is **unproven**. Pinned by
-  `SPORT_OPEN_STRUCTURE_FINDINGS` so it cannot vanish or be silently
-  promoted; owner: the Phase 7.6 structure/ownership review (7.6-E / 7.6-G).
-  **No blocker ID was created** (standing instruction).
+- **r0 rewrite of the record (this phase).** In preparation for the
+  approved §2 structure rebuild (Phases r1–r2), the authoritative record in
+  `tests/core/test_spec_guardrails.py` is rewritten to key sport-internal
+  modules by their post-restructure paths (`run_production.py`,
+  `config/study_config.py`, `features/registry.py`, `features/raw/catalog.py`,
+  `models/moneyline/training.py`, `models/market/*`) so the record and the
+  moved tree cannot disagree during r1/r2. The open MLB-adapter finding is
+  **closed as permitted-with-owner**: the r1 scope explicitly adds
+  `sports/mlb/adapter.py` implementing `SportAdapter`, so the difference
+  that remained unproven at 7.6-A is resolved by construction rather than
+  silently promoted. The §22 shared-capability set is re-keyed to the same
+  post-restructure paths.
 
 **Reviewed four-sport structure comparison** (evidence at baseline
-`1f20010`; ✓ = module present):
+`1f20010`; ✓ = module present; re-keyed to the post-r1/r2 §2 paths by the
+r0 record rewrite):
 
-| Module | mlb | nfl | nhl | nba | Recorded status |
+| Module (post-restructure path) | mlb | nfl | nhl | nba | Recorded status |
 |---|---|---|---|---|---|
 | `artifacts.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
-| `catalog.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
-| `feature_registry.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
-| `features.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
-| `ingestion.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `catalog.py` → `features/raw/catalog.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `feature_registry.py` → `features/registry.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `features.py` → `features/build_frame.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `ingestion.py` → `ingestion/` package | ✓ | ✓ | ✓ | ✓ | shared capability |
 | `optimization.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
-| `runner.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
-| `study_config.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
-| `training.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
-| `adapter.py` | — | ✓ | ✓ | ✓ | **OPEN finding** (MLB gap unproven) |
-| `distributions.py` | — | ✓ | ✓ | ✓ | permitted (NNX margin/totals model) |
+| `runner.py` → `run_production.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `study_config.py` → `config/study_config.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `training.py` → `models/moneyline/training.py` | ✓ | ✓ | ✓ | ✓ | shared capability |
+| `adapter.py` | ✓ | ✓ | ✓ | ✓ | closed r0: permitted-with-owner; r1 adds `sports/mlb/adapter.py` |
+| `distributions.py` → `models/market/distributions.py` | — | ✓ | ✓ | ✓ | permitted (NNX margin/totals model) |
 | `evaluation.py` | — | ✓ | ✓ | ✓ | permitted (NNX OOF metrics) |
 | `frames.py` | ✓ | — | — | — | permitted (MLB PIT game frame / run-engine path) |
 | `market_config.py` | ✓ | — | — | — | permitted (MLB market constants) |
-| `run_engine.py` | ✓ | — | — | — | permitted (MLB per-game run distribution) |
+| `run_engine.py` → `models/market/run_engine.py` | ✓ | — | — | — | permitted (MLB per-game run distribution) |
 | `qb_enrichment.py` | — | ✓ | — | — | permitted (NFL participant panel) |
 | `goalie_enrichment.py` | — | — | ✓ | — | permitted (NHL participant panel) |
 | `participant_enrichment.py` | — | — | — | ✓ | permitted (NBA participant panel) |
