@@ -200,7 +200,7 @@ def test_adapter_default_scopes_bind_own_contract() -> None:
     market scope's prod_features must never mutate the moneyline scope
     (the aliasing failure mode Task 2 eliminated).
     """
-    from core.optimization.sports import default_scopes
+    from core.experiments.sports import default_scopes
 
     ml, mk = default_scopes("nba", ("feat_a", "feat_b"))
     assert ml is not mk

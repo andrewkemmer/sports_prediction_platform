@@ -16,9 +16,9 @@ from typing import Any, Protocol, runtime_checkable
 
 import pandas as pd
 
-from core.config import PlatformConfig, normalize_sport_key
-from core.dates import artifact_date_from_filename
-from core.markets import SettlementConfig
+from core.config.platform import PlatformConfig, normalize_sport_key
+from core.study.date_resolution import artifact_date_from_filename
+from core.contracts.settlement_rules import SettlementConfig
 
 # ---------------------------------------------------------------------------
 # Feature contract

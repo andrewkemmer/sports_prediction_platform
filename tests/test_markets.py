@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.markets import (
+from core.contracts import (
     FULL_GAME_NO_TIE,
     FULL_GAME_TIE_ALLOWED,
     REGULATION_TIE_ALLOWED,
@@ -284,7 +284,7 @@ def test_three_way_regulation_market_never_forces_null_tie():
 
 
 def test_tie_triple_renormalized_pair():
-    from core.markets import TieTriple
+    from core.contracts import TieTriple
     t = TieTriple(p_home=0.45, p_tie=0.10, p_away=0.45)
     assert t.renormalized_pair() == pytest.approx((0.5, 0.5))
     assert t.decided_mass() == pytest.approx(0.90)

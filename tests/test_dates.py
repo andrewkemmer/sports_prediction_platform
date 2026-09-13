@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 import pytest
 
-from core.dates import (
+from core.study import (
     DateError,
     artifact_date_from_filename,
     compact_date_range,

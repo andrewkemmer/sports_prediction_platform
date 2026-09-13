@@ -21,7 +21,7 @@ from sports.nba.optimization import nba_adapters
 from sports.nfl.optimization import nfl_adapters
 from sports.nhl.optimization import nhl_adapters
 
-logger = logging.getLogger("core.optimization")
+logger = logging.getLogger("core.experiments")
 
 #: The four sport builders, keyed by sport. Composition root only —
 #: adding a sport means adding its ``sports/<sport>/optimization.py``

@@ -16,8 +16,8 @@ from pathlib import Path
 import yaml
 
 from core.config import WalkForwardConfig
-from core.dates import is_valid_compact_date
-from core.warmup import WarmupConfig
+from core.study import is_valid_compact_date
+from core.config.platform import WarmupConfig
 
 #: Phase 7.5b canonical contract ownership: the feature contracts are
 #: DECLARED in ``sports.mlb.feature_registry`` and imported here — the
@@ -109,7 +109,7 @@ class MLBStudy:
     def warmup_start_date(self) -> str | None:
         """The first date the warmup contract can be satisfied, given the
         configured data start and min history days (None when unconstrained)."""
-        from core.dates import shift_compact_date
+        from core.study import shift_compact_date
         if not self.data_start_date:
             return None
         return shift_compact_date(

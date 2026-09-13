@@ -96,7 +96,7 @@ def validate_oof_rows(rows: list[dict]) -> OOFValidationReport:
 
         gd = str(row["game_date"])
         try:
-            from core.dates import is_valid_compact_date
+            from core.study import is_valid_compact_date
             if not is_valid_compact_date(gd):
                 raise ValueError
         except Exception:

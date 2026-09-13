@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from core.config import DEFAULT_ALLOWLISTED_FAMILIES, default_config
-from core.retention import (
+from core.artifacts import (
     RetentionPlan,
     _family_name,
     apply_retention,

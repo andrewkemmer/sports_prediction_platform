@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from core.config import PredictionWindowConfig, SportConfig
-from core.dates import (
+from core.config.platform import PredictionWindowConfig, SportConfig
+from core.study.date_resolution import (
     ET,
     format_compact_date,
     is_valid_compact_date,

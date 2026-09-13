@@ -18,14 +18,14 @@ import pandas as pd
 import pytest
 
 from sports.mlb.optimization import mlb_adapters
-from core.optimization.candidates import (
+from core.experiments.search_space import (
     build_candidates,
     candidate_catalog_fingerprint,
     derive_column,
     spec_from_name,
 )
-from core.optimization.models import Bounds
-from core.optimization.sports import MLB_SIDE_FIELDS, mlb_scopes
+from core.experiments.search_space import Bounds
+from core.experiments.sports import MLB_SIDE_FIELDS, mlb_scopes
 
 
 # ---------------------------------------------------------------------------

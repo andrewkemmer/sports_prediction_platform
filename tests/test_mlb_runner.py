@@ -88,7 +88,7 @@ def test_runconfig_training_window_independent_of_run_window():
     """The run window scopes ingestion/serving; training history comes from
     the study config — the runner never derives training dates from the env
     values."""
-    from core.runconfig import resolve_run_window
+    from core.config import resolve_run_window
     from sports.mlb.study_config import load_mlb_study
     study = load_mlb_study()
     w = resolve_run_window(
@@ -106,7 +106,7 @@ def test_retention_exemption_for_run_engine_oof(tmp_path):
     """run_engine_oof_* is NOT frontend-consumed: it must never be a
     retention candidate even when dated and old."""
     from core.config import default_config
-    from core.retention import run_production_retention
+    from core.artifacts import run_production_retention
     sink = tmp_path / "sports" / "mlb" / "data_delivery"
     sink.mkdir(parents=True)
     (sink / "run_engine_oof_20260801.csv").write_text("game_pk\n1\n")

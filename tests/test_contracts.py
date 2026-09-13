@@ -23,7 +23,7 @@ from core.contracts import (
     validate_columns_have_metadata,
     validate_metadata_is_reachable,
 )
-from core.record_validation import (
+from core.contracts import (
     EXPECTED_REGISTRY_SIZE,
     REGISTRY,
     RecordValidationError,
@@ -170,7 +170,7 @@ def test_sport_adapter_protocol_is_runtime_checkable():
             return {"p_home": 0.5, "p_away": 0.5}
 
         def settlement_config(self, market_kind):
-            from core.markets import FULL_GAME_NO_TIE
+            from core.contracts import FULL_GAME_NO_TIE
             return FULL_GAME_NO_TIE
 
     assert isinstance(_Adapter(), SportAdapter)
@@ -179,7 +179,7 @@ def test_sport_adapter_protocol_is_runtime_checkable():
 def test_sport_adapter_settlement_config_contract():
     """Every adapter exposes per-market-kind settlement configs."""
     from core.contracts import SportAdapter
-    from core.markets import (
+    from core.contracts import (
         FULL_GAME_NO_TIE,
         FULL_GAME_TIE_ALLOWED,
         REGULATION_TIE_ALLOWED,

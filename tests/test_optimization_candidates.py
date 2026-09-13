@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.optimization import (
+from core.experiments import (
     Bounds,
     OptimizationConfig,
     build_candidates,
@@ -30,15 +30,15 @@ from core.optimization import (
     run_optimization,
     slate_available_columns,
 )
-from core.optimization.candidates import (
+from core.experiments.search_space import (
     diff_candidates,
     interaction_candidates,
     rolling_candidates,
     derive_column,
     spec_from_name,
 )
-from core.optimization.models import ModelScope
-from core.optimization.runner import ScopeRunner
+from core.experiments.search_space import ModelScope
+from core.experiments.optimizer import ScopeRunner
 
 RAW = ("elo_home", "elo_away", "rest_days_home", "rest_days_away",
        "win_pct_home", "win_pct_away")
@@ -147,7 +147,7 @@ def test_derive_column_diff_matches_production_values():
         "pace_home": [10.0, 12.0, 14.0, 16.0],
         "pace_away": [8.0, 9.0, 10.0, 11.0],
     })
-    from core.optimization.candidates import CandidateSpec
+    from core.experiments.search_space import CandidateSpec
 
     spec = CandidateSpec("pace_home_minus_away", "diff", "pace_home", ())
     out = derive_column(df, spec)
@@ -164,7 +164,7 @@ def test_derive_column_team_rolling_is_strictly_prior():
         "elo_home": [100.0, 200.0, 110.0, 210.0],
         "elo_away": [200.0, 100.0, 210.0, 110.0],
     })
-    from core.optimization.candidates import CandidateSpec
+    from core.experiments.search_space import CandidateSpec
 
     spec = CandidateSpec("elo__rollmean3_diff", "rolling", "elo_home", (3,))
     out = derive_column(df, spec)
@@ -207,7 +207,7 @@ def test_interaction_budget_truncates_deterministically():
 def test_leakage_audit_flags_outcome_column_as_base():
     cands, _ = build_candidates(("elo_home", "elo_away"), Bounds(),
                                 incumbent=PROD)
-    from core.optimization.candidates import CandidateSpec
+    from core.experiments.search_space import CandidateSpec
 
     bad = list(cands) + [CandidateSpec("cheat", "rolling", "home_win", (3,))]
     report = leakage_audit(bad, ("elo_home", "elo_away"))
@@ -216,7 +216,7 @@ def test_leakage_audit_flags_outcome_column_as_base():
 
 
 def test_leakage_audit_flags_unknown_base_field():
-    from core.optimization.candidates import CandidateSpec
+    from core.experiments.search_space import CandidateSpec
 
     bad = [CandidateSpec("ghost", "rolling", "not_a_real_field", (5,))]
     report = leakage_audit(bad, ("elo_home",))

@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from core.config import default_config
-from core.warmup import evaluate_warmup
+from core.study import evaluate_warmup
 from sports.mlb.feature_registry import (
     MARKET_FEATURE_COLS,
     MONEYLINE_FEATURE_COLS,

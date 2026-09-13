@@ -14,7 +14,7 @@ fabricated/unavailable fields are listed.
 
 from __future__ import annotations
 
-from core.optimization.models import ModelScope
+from core.experiments.search_space import ModelScope
 
 # ---------------------------------------------------------------------------
 # Raw field pools — durable-store / catalog fields per sport

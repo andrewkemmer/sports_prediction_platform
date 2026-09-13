@@ -23,8 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from core.validation import ValidationError
-from core.dates import parse_compact_date
+from core.validation.schema import ValidationError
+from core.study.date_resolution import parse_compact_date
 
 # §7.1 buffers (hard-pinned; also pinned per sport in study_config.py).
 BUFFER_MINUTES = {"mlb": 60, "nhl": 60, "nfl": 90, "nba": 90}

@@ -1,7 +1,7 @@
 """Tests for core.warmup."""
 
 from core.config import WarmupConfig
-from core.warmup import (
+from core.study import (
     evaluate_warmup,
     teams_ready_for_display,
     warmup_complete_date,

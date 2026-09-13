@@ -17,8 +17,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from core.config import SPORTS, WalkForwardConfig
-from core.dates import is_valid_compact_date
+from core.config.platform import SPORTS, WalkForwardConfig
+from core.study.date_resolution import is_valid_compact_date
 
 STUDY_KINDS = ("experiment", "optimization", "production", "diagnostic")
 

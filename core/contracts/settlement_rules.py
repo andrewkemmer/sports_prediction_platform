@@ -22,7 +22,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 
-from core.config import normalize_sport_key
+from core.config.platform import normalize_sport_key
 
 
 class Outcome(enum.Enum):

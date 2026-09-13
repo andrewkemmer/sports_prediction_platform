@@ -22,8 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.config import PlatformConfig, normalize_sport_key
-from core.dates import (
+from core.config.platform import PlatformConfig, normalize_sport_key
+from core.study.date_resolution import (
     format_compact_date,
     is_valid_compact_date,
     parse_compact_date,

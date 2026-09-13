@@ -18,7 +18,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from core.config import normalize_sport_key
+from core.config.platform import normalize_sport_key
 
 
 class StorageError(RuntimeError):
@@ -60,7 +60,7 @@ def write_parquet_partition(
     """
     if df is None:
         raise StorageError("cannot write a None frame")
-    from core.dates import is_valid_compact_date
+    from core.study import is_valid_compact_date
     if not is_valid_compact_date(partition_date):
         raise StorageError(f"invalid partition date: {partition_date!r}")
     out_dir = parquet_dir(root, sport, dataset)

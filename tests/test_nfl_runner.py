@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from core.config import default_config
-from core.retention import plan_retention
+from core.artifacts import plan_retention
 from sports.nfl.adapter import NFLAdapter
 from sports.nfl.artifacts import (
     NFLArtifactError,
@@ -278,7 +278,7 @@ class TestStudyDeterminism:
 def test_write_predictions_history_rejects_out_of_range_probability(
         tmp_path):
     """p columns outside [0, 1] raise before serialization; no CSV."""
-    from core.record_validation import RecordValidationError
+    from core.contracts import RecordValidationError
     oof = pd.DataFrame({
         "game_id": ["g1", "g2"], "gameday": ["2026-09-07"] * 2,
         "season": [2026] * 2, "home_team": ["A"] * 2, "away_team": ["B"] * 2,
@@ -293,7 +293,7 @@ def test_write_predictions_history_rejects_out_of_range_probability(
 
 def test_persist_shap_game_rejects_missing_columns(tmp_path):
     """A shap frame missing a required column raises pre-write."""
-    from core.record_validation import RecordValidationError
+    from core.contracts import RecordValidationError
     frame = pd.DataFrame({"feature": ["f1"], "shap_value": [0.1]})
     with pytest.raises((RecordValidationError, NFLArtifactError)):
         persist_shap_game(frame, "20260907", "ARI@KC", out_dir=tmp_path)

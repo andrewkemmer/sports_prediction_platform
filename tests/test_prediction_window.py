@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from core.config import default_config
-from core.prediction_window import (
+from core.config import (
     PredictionWindowError,
     game_in_window,
     partition_slate,

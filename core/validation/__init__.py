@@ -1,36 +1,41 @@
-"""Shared validation package (B-001, Phase 7.5d WS4).
+"""Shared validation package (§2 layout; legacy bridge removed in r1).
 
-Converts the former ``core/validation.py`` module into a package:
-``core.validation.__init__`` re-exports the complete existing public
-surface verbatim (import compatibility: zero call-site edits), and
-``core.validation.future_availability`` hosts the §7.1 point-in-time
-validators.
+Submodules:
+* ``schema``             — probability/metric/column validation guards
+* ``determinism``        — stable serialization, fingerprints, replay checks
+* ``leakage``            — optimization-candidate PIT/leakage audit
+* ``future_availability`` — §7.1 per-field point-in-time validators
+
+``core.validation.__init__`` re-exports the complete historical public
+surface verbatim (import compatibility: zero call-site edits).
 """
 
-from core.validation._legacy_module import (  # noqa: F401
+from core.validation.schema import (  # noqa: F401
     ValidationError,
-    assert_deterministic,
     require_columns,
+    validate_metric,
+    validate_probability,
+    validate_probability_pair,
+)
+from core.validation.determinism import (  # noqa: F401
+    assert_deterministic,
     round_float,
     sha256_bytes,
     sha256_text,
     stable_json,
     stable_value,
-    validate_metric,
-    validate_probability,
-    validate_probability_pair,
 )
 
 __all__ = [
     "ValidationError",
-    "assert_deterministic",
     "require_columns",
+    "validate_metric",
+    "validate_probability",
+    "validate_probability_pair",
+    "assert_deterministic",
     "round_float",
     "sha256_bytes",
     "sha256_text",
     "stable_json",
     "stable_value",
-    "validate_metric",
-    "validate_probability",
-    "validate_probability_pair",
 ]

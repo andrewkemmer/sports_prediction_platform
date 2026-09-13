@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from core.config import WarmupConfig
-from core.dates import parse_compact_date, shift_compact_date
+from core.config.platform import WarmupConfig
+from core.study.date_resolution import parse_compact_date, shift_compact_date
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.markets import (
+from core.contracts import (
     Outcome,
     SettlementConfig,
     settle_moneyline,

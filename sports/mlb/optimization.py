@@ -2,7 +2,7 @@
 
 Owns MLB's ``mlb_adapters`` — the sport-side half of the optimization
 harness. Connects the shared sport-agnostic harness
-(``core.optimization.adapters``) to MLB's EXISTING pieces: the pitches
+(``core.experiments.adapters``) to MLB's EXISTING pieces: the pitches
 store, the DuckDB feature engine, the canonical decided frame, the PIT
 Elo/records enrichment, and the frozen feature contracts. Nothing here
 reaches back into ``core`` for sport knowledge (policy section 18: the
@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from core.optimization.adapters import (
+from core.experiments.adapters import (
     STORE,
     matrix_builder,
     member_factory_for,
     slate_check,
 )
-from core.optimization.models import ModelScope
+from core.experiments.search_space import ModelScope
 
 
 def mlb_adapters(study=None) -> dict[str, dict]:
@@ -176,7 +176,7 @@ def mlb_adapters(study=None) -> dict[str, dict]:
             "_scope": scope,
         }
 
-    from core.optimization.sports import mlb_scopes
+    from core.experiments.sports import mlb_scopes
     ml, mk = mlb_scopes(ml_incumbent, run_incumbent)
     return {"mlb/moneyline": shared("moneyline", ml),
             "mlb/market": shared("market", mk)}

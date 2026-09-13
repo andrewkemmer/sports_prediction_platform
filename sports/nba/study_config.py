@@ -17,7 +17,7 @@ from pathlib import Path
 import yaml
 
 from core.config import WalkForwardConfig
-from core.warmup import WarmupConfig
+from core.config.platform import WarmupConfig
 
 
 class NBAStudyError(ValueError):

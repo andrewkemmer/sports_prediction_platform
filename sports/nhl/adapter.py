@@ -32,7 +32,7 @@ from core.contracts import (
     ArtifactFamily,
     ParticipantBox,
 )
-from core.markets import SettlementConfig
+from core.contracts import SettlementConfig
 from sports.nhl.feature_registry import build_feature_contract
 
 

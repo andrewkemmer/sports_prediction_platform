@@ -776,7 +776,7 @@ def test_dependency_manifest_pins_versions():
 def _record_validation_registry() -> set[tuple[str, str]]:
     """Import the production registry and return its (sport, family) keys."""
     import importlib
-    mod = importlib.import_module("core.record_validation")
+    mod = importlib.import_module("core.contracts.artifact_schema")
     return set(mod.REGISTRY.keys())
 
 
@@ -842,7 +842,7 @@ def test_registry_size_pinned():
     + 3 runner-side OOF/fold stores). Any change to the registry is a
     reviewed registry change, never silent growth."""
     import importlib
-    mod = importlib.import_module("core.record_validation")
+    mod = importlib.import_module("core.contracts.artifact_schema")
     assert len(mod.REGISTRY) == mod.EXPECTED_REGISTRY_SIZE == 56
 
 
@@ -1305,7 +1305,7 @@ def test_mlb_slate_anchor_source_is_the_serving_windows_first_date():
     import pandas as pd
 
     from core.config import default_config
-    from core.prediction_window import resolve_prediction_window
+    from core.config import resolve_prediction_window
     from core.validation.future_availability import (validate_slate_window,
                                                      window_anchor)
     from sports.mlb.runner import _build_slate

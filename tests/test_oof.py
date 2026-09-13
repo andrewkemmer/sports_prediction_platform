@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from core.oof import (
+from core.folds import (
     OOFError,
     brier_score,
     log_loss,

@@ -27,7 +27,7 @@ from core.contracts import (  # noqa: F401
     default_artifact_contract,
     load_artifact_contract,
 )
-from core.dates import (  # noqa: F401
+from core.study import (  # noqa: F401
     DateError,
     artifact_date_from_filename,
     format_compact_date,
@@ -40,7 +40,7 @@ from core.dates import (  # noqa: F401
     today_et,
 )
 from core.folds import Fold, FoldError, build_folds  # noqa: F401
-from core.markets import (  # noqa: F401
+from core.contracts import (  # noqa: F401
     Outcome,
     ProbTriple,
     Settlement,
@@ -54,7 +54,7 @@ from core.markets import (  # noqa: F401
     sport_allows_ties,
     triple_from_line_grid,
 )
-from core.oof import (  # noqa: F401
+from core.folds import (  # noqa: F401
     OOFError,
     OOFValidationReport,
     brier_score,
@@ -63,14 +63,14 @@ from core.oof import (  # noqa: F401
     roc_auc,
     validate_oof_rows,
 )
-from core.prediction_window import (  # noqa: F401
+from core.config import (  # noqa: F401
     PredictionWindow,
     PredictionWindowError,
     game_in_window,
     partition_slate,
     resolve_prediction_window,
 )
-from core.retention import (  # noqa: F401
+from core.artifacts import (  # noqa: F401
     RetentionError,
     RetentionPlan,
     apply_retention,
@@ -87,7 +87,7 @@ from core.validation import (  # noqa: F401
     validate_probability,
     validate_probability_pair,
 )
-from core.warmup import (  # noqa: F401
+from core.study import (  # noqa: F401
     WarmupStatus,
     evaluate_warmup,
     teams_ready_for_display,

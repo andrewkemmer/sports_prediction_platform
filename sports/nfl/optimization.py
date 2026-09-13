@@ -2,7 +2,7 @@
 
 Owns NFL's ``nfl_adapters`` — the sport-side half of the optimization
 harness. Connects the shared sport-agnostic harness
-(``core.optimization.adapters``) to NFL's EXISTING pieces: the nflverse
+(``core.experiments.adapters``) to NFL's EXISTING pieces: the nflverse
 season caches, the feature engine, the venue lookup, and the study.yaml
 fold geometry. Dependency direction is sports -> core.
 """
@@ -13,14 +13,14 @@ import dataclasses
 
 import pandas as pd
 
-from core.optimization.adapters import (
+from core.experiments.adapters import (
     STORE,
     matrix_builder,
     member_factory_for,
     raw_columns_fn,
     slate_check,
 )
-from core.optimization.models import ModelScope
+from core.experiments.search_space import ModelScope
 
 
 def nfl_adapters(study) -> dict[str, dict]:
@@ -84,7 +84,7 @@ def nfl_adapters(study) -> dict[str, dict]:
             "_scope": scope,
         }
 
-    from core.optimization.sports import default_scopes
+    from core.experiments.sports import default_scopes
     ml, mk = default_scopes("nfl", tuple(study.moneyline_feature_cols))
     mk = dataclasses.replace(mk, prod_features=tuple(study.market_feature_cols))
     return {"nfl/moneyline": shared("moneyline", ml),

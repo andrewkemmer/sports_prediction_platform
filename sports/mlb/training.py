@@ -239,7 +239,7 @@ def train_moneyline_ensemble(
     logloss) member weights, and the ``predictions_history`` frame the
     run engine merges for the agreement columns.
     """
-    from core.oof import brier_score, log_loss, oof_metrics, roc_auc
+    from core.folds import brier_score, log_loss, oof_metrics, roc_auc
 
     wf = study.walk_forward
     min_val = int(min_val_games if min_val_games is not None

@@ -2,7 +2,7 @@
 
 Owns NHL's ``nhl_adapters`` — the sport-side half of the optimization
 harness. Connects the shared sport-agnostic harness
-(``core.optimization.adapters``) to NHL's EXISTING pieces: the schedule
+(``core.experiments.adapters``) to NHL's EXISTING pieces: the schedule
 store, the feature engine, and the study.yaml fold geometry. Dependency
 direction is sports -> core.
 """
@@ -13,14 +13,14 @@ import dataclasses
 
 import pandas as pd
 
-from core.optimization.adapters import (
+from core.experiments.adapters import (
     STORE,
     matrix_builder,
     member_factory_for,
     raw_columns_fn,
     slate_check,
 )
-from core.optimization.models import ModelScope
+from core.experiments.search_space import ModelScope
 
 
 def nhl_adapters(study) -> dict[str, dict]:
@@ -71,7 +71,7 @@ def nhl_adapters(study) -> dict[str, dict]:
             "_scope": scope,
         }
 
-    from core.optimization.sports import default_scopes
+    from core.experiments.sports import default_scopes
     ml, mk = default_scopes("nhl", tuple(study.moneyline_feature_cols))
     mk = dataclasses.replace(mk, prod_features=tuple(study.market_feature_cols))
     return {"nhl/moneyline": shared("moneyline", ml),

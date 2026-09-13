@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from core.storage import (
+from core.features import (
     StorageError,
     duckdb_path,
     parquet_dir,

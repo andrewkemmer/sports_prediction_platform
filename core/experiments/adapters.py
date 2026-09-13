@@ -38,12 +38,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from core.optimization.candidates import (
-    spec_from_name,
-)
+from core.experiments.search_space import spec_from_name
 
 #: Durable store root. Read as a MODULE-LEVEL name so per-sport modules
-#: can bind it (``from core.optimization.adapters import STORE``) and
+#: can bind it (``from core.experiments.adapters import STORE``) and
 #: tests can retarget their own sport's binding with
 #: ``monkeypatch.setattr(<sport>.optimization, "STORE", tmp_path)``.
 STORE = Path("store")
@@ -90,7 +88,7 @@ def matrix_builder(raw_fields: tuple[str, ...]):
             if spec is None:
                 cols[f] = pd.Series(np.nan, index=df.index)
                 continue
-            from core.optimization.candidates import derive_column
+            from core.experiments.search_space import derive_column
 
             cols[f] = derive_column(
                 df, spec, team_cols=("home_team", "away_team"),

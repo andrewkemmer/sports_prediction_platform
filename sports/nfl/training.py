@@ -18,6 +18,14 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+
+from core.calibration.binary import apply_platt, fit_platt
+from core.training.blending import (
+    DEFAULT_ENSEMBLE_PRIOR,
+    adaptive_weights as _adaptive_weights,
+    blend_member_predictions as _blend_members,
+    blend_probabilities as _blend,
+)
 import pandas as pd
 
 from sports.nfl.feature_registry import (
@@ -30,7 +38,7 @@ from sports.nfl.study_config import load_nfl_study
 
 logger = logging.getLogger(__name__)
 
-CLIP = 1e-7
+CLIP = 1e-7  # NNX clipping bound (shared blending uses the same)
 
 LINEAR_MEMBERS = {"logistic", "mlp"}
 TREE_MEMBERS = ("xgboost", "lightgbm", "randomforest")
@@ -238,56 +246,10 @@ def walk_forward_oof(game_df: pd.DataFrame, study,
             "fold_table": pd.DataFrame(fold_rows)}
 
 
-def _adaptive_weights(oof: pd.DataFrame, study) -> dict[str, float]:
-    """Softmax over pooled OOF AUC edges (study metric). Deterministic;
-    derived ONLY from OOF rows. Falls back to study priors when OOF is
-    unusable."""
-    prior = (study.training.ensemble_weights
-             or {"xgboost": 0.25, "lightgbm": 0.25, "logistic": 0.20,
-                 "randomforest": 0.15, "mlp": 0.15})
-    if oof is None or not len(oof):
-        return prior
-    y = oof["home_win"].astype(int).to_numpy()
-    if len(y) < 2 or len(np.unique(y)) < 2:
-        return prior
-    try:
-        from sklearn.metrics import roc_auc_score
-    except ImportError:
-        return prior
-    edges: dict[str, float] = {}
-    for name in study.training.ensemble_members:
-        col = f"p_{name}"
-        if col not in oof.columns:
-            return prior
-        p = oof[col].to_numpy(dtype=float)
-        ok = np.isfinite(p)
-        if ok.sum() < 2 or len(np.unique(y[ok])) < 2:
-            return prior
-        edges[name] = roc_auc_score(y[ok], p[ok])
-    base_auc = max(edges.values())
-    T = study.training.adaptive_weight_temperature
-    exp = {n: np.exp((a - base_auc) / T) for n, a in edges.items()}
-    raw = {n: max(study.training.adaptive_weight_floor,
-                  min(study.training.adaptive_weight_cap,
-                      e / sum(exp.values())))
-           for n, e in exp.items()}
-    total = sum(raw.values())
-    return {n: w / total for n, w in raw.items()}
 
 
-def _blend(oof: pd.DataFrame, weights: dict[str, float],
-           study) -> np.ndarray:
-    """Weighted ensemble probability; NaN members skipped per row."""
-    cols = [f"p_{n}" for n in study.training.ensemble_members
-            if f"p_{n}" in oof.columns]
-    P = oof[cols].to_numpy(dtype=float)
-    w = np.array([weights.get(c[2:], 0.0) for c in cols])
-    mask = np.isfinite(P)
-    wv = np.where(mask, w[None, :], 0.0)
-    wsum = wv.sum(axis=1)
-    out = np.divide((P * wv).sum(axis=1), wsum,
-                    out=np.full(len(P), np.nan), where=wsum > 0)
-    return np.clip(out, CLIP, 1.0 - CLIP)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -328,18 +290,10 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
         X_raw = member_matrix(name, slate_df, study)
         member_p[name] = _member_predict_proba(entry["model"], name,
                                                X_raw, entry["pre"])
-    cols = [n for n in study.training.ensemble_members
-            if member_p.get(n) is not None]
-    if not cols:
+    blended = _blend_members(member_p, weights, study)
+    if blended.size == 0:
         return np.full(len(slate_df), np.nan)
-    P = np.column_stack([member_p[n] for n in cols])
-    w = np.array([weights.get(n, 0.0) for n in cols])
-    mask = np.isfinite(P)
-    wv = np.where(mask, w[None, :], 0.0)
-    wsum = wv.sum(axis=1)
-    out = np.divide((P * wv).sum(axis=1), wsum,
-                    out=np.full(len(P), np.nan), where=wsum > 0)
-    return np.clip(out, CLIP, 1.0 - CLIP)
+    return blended
 
 
 # ---------------------------------------------------------------------------
@@ -347,32 +301,7 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
 # ---------------------------------------------------------------------------
 
 
-def fit_platt(oof_p: np.ndarray, y: np.ndarray) -> dict:
-    """2-parameter logistic map p -> sigmoid(a*z + b) where z = logit(p).
-    Deterministic (LBFGS, no randomness). Persisted at 6-decimal precision
-    (MLB presentation parity)."""
-    from sklearn.linear_model import LogisticRegression
-    oof_p = np.asarray(oof_p, dtype=float)
-    y = np.asarray(y, dtype=float)
-    ok = np.isfinite(oof_p) & np.isfinite(y)
-    oof_p, y = oof_p[ok], y[ok]
-    if len(oof_p) < 2 or len(np.unique(y)) < 2:
-        return {"a": None, "b": None, "n": 0}
-    z = np.log(np.clip(oof_p, CLIP, 1 - CLIP)
-               / (1 - np.clip(oof_p, CLIP, 1 - CLIP)))
-    lr = LogisticRegression(C=1e6, solver="lbfgs", max_iter=1000)
-    lr.fit(z.reshape(-1, 1), y.astype(int))
-    return {"a": round(float(lr.coef_[0][0]), 6),
-            "b": round(float(lr.intercept_[0]), 6), "n": int(len(oof_p))}
 
-
-def apply_platt(p: np.ndarray, cal: dict) -> np.ndarray:
-    if cal is None or cal.get("a") is None:
-        return np.asarray(p, dtype=float)
-    p = np.asarray(p, dtype=float)
-    z = np.log(np.clip(p, CLIP, 1 - CLIP) / (1 - np.clip(p, CLIP, 1 - CLIP)))
-    out = 1.0 / (1.0 + np.exp(-(cal["a"] * z + cal["b"])))
-    return np.clip(out, CLIP, 1.0 - CLIP)
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +317,7 @@ def predict_slate_moneyline(decided: pd.DataFrame, slate: pd.DataFrame,
     if slate.empty:
         return slate
     models, _ = fit_final_models(decided, study)
-    weights = study.training.ensemble_weights or {
-        "xgboost": 0.25, "lightgbm": 0.25, "logistic": 0.20,
-        "randomforest": 0.15, "mlp": 0.15}
+    weights = study.training.ensemble_weights or dict(DEFAULT_ENSEMBLE_PRIOR)
     p_home = predict_slate(models, slate, weights, study)
     out = slate.copy()
     out["home_win_prob_model"] = p_home

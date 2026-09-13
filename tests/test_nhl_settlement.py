@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from core.markets import (
+from core.contracts import (
     FULL_GAME_NO_TIE,
     SettlementConfig,
     Outcome,

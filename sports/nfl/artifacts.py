@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from core.contracts import require_features_metadata
-from core.record_validation import validate_record
+from core.contracts import validate_record
 from sports.nfl.feature_registry import MONEYLINE_CONTRACT_VERSION
 
 logger = logging.getLogger(__name__)

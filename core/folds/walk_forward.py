@@ -38,8 +38,8 @@ from datetime import timedelta
 
 import pandas as pd
 
-from core.config import WalkForwardConfig
-from core.dates import (
+from core.config.platform import WalkForwardConfig
+from core.study.date_resolution import (
     DateError,
     format_compact_date,
     parse_compact_date,

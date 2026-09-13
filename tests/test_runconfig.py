@@ -7,7 +7,7 @@ training history is never derived from these values.
 
 import pytest
 
-from core.runconfig import (
+from core.config import (
     ENV_END_DATE,
     ENV_FULL_REPULL,
     ENV_START_DATE,

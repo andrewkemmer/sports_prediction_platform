@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from core.oof import brier_score, log_loss, oof_metrics, roc_auc
+from core.folds.oof import brier_score, log_loss, oof_metrics, roc_auc
 
 
 def pooled_metrics(probs, outcomes) -> dict:
