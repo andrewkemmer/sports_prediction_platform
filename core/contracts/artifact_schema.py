@@ -224,6 +224,8 @@ _PRED_COLS = ("game_id", "game_date", "home_team", "away_team", "home_score",
 _RANK_COLS = ("rank", "team", "team_name", "elo", "wins", "losses", "record",
               "pct", "run_diff", "l10", "home_pct", "away_pct")
 _SHAP_COLS = ("feature", "shap_value", "signed_effect", "perspective_team")
+_GAME_LEVEL_COLS = ("game_pk", "game_date", "home_team", "away_team",
+                    "home_score", "away_score", "home_win")
 
 # --- MLB JSON key sets (fixture: mlb_artifact_schemas.json) ------------------
 _MLB_CALIBRATION_KEYS = ("date", "n_games", "trained_at", "metrics",
@@ -338,6 +340,10 @@ def _register_mlba(reg: dict) -> None:
         "frame", _RANK_COLS, description="MLB power rankings")
     reg["mlb", "calibration"] = RecordType(
         "json", _MLB_CALIBRATION_KEYS, description="MLB calibration")
+    reg["mlb", "game_level_features"] = RecordType(
+        "frame", _GAME_LEVEL_COLS,
+        description="Decided game-level support frame (§22 Amendment 11: "
+                    "board-finals reconciliation + markets team bridge)")
     reg["mlb", "model_monitor"] = RecordType(
         "json", _MLB_MODEL_MONITOR_KEYS, description="MLB model monitor")
     reg["mlb", "rolling_brier"] = RecordType(
@@ -566,4 +572,4 @@ _register_markets_mass_groups(REGISTRY)
 # added the standalone rolling_brier / features_metadata records). Pinned
 # by tests/test_contracts.py with an explanatory comment; a change here
 # is a registry change and must be reviewed.
-EXPECTED_REGISTRY_SIZE = 62
+EXPECTED_REGISTRY_SIZE = 63

@@ -234,15 +234,16 @@ def test_contract_paths_under_new_layout(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_registry_size_pinned():
-    """The registry pins 62 entries: 14 MLB (13 primaries +
-    run_engine_markets.meta) and 16 each for NFL/NHL/NBA (10 artifact
-    primaries + run_engine_markets.meta + 3 runner-side OOF/fold stores
-    + the r5 §22.1 standalone rolling_brier / features_metadata).
-    Any change is a reviewed registry change — never silent growth."""
-    assert len(REGISTRY) == EXPECTED_REGISTRY_SIZE == 62
+    """The registry pins 63 entries: 15 MLB (14 primaries incl.
+    game_level_features + run_engine_markets.meta) and 16 each for
+    NFL/NHL/NBA (10 artifact primaries + run_engine_markets.meta +
+    3 runner-side OOF/fold stores + the r5 §22.1 standalone
+    rolling_brier / features_metadata). Any change is a reviewed
+    registry change — never silent growth."""
+    assert len(REGISTRY) == EXPECTED_REGISTRY_SIZE == 63
     from collections import Counter
     per_sport = Counter(s for s, _ in REGISTRY)
-    assert per_sport == {"mlb": 14, "nfl": 16, "nhl": 16, "nba": 16}
+    assert per_sport == {"mlb": 15, "nfl": 16, "nhl": 16, "nba": 16}
 
 
 def test_registry_nonempty_required_fields_and_probability_closed():

@@ -23,7 +23,8 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # Fold geometry lives in core.folds (Phase 7.5 Task 1 consolidation).
-from core.folds import walk_forward_splits  # noqa: E402
+from core.folds import (walk_forward_splits, brier_score, log_loss,
+                        oof_metrics, roc_auc)  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +240,7 @@ def train_moneyline_ensemble(
     logloss) member weights, and the ``predictions_history`` frame the
     run engine merges for the agreement columns.
     """
-    from core.folds import brier_score, log_loss, oof_metrics, roc_auc
+    from core.folds import oof_metrics, roc_auc  # typed-call shadow (parity)
 
     wf = study.walk_forward
     min_val = int(min_val_games if min_val_games is not None
@@ -373,10 +374,20 @@ def train_moneyline_ensemble(
                  "home_win_prob_model", "home_win_prob_model_calibrated",
                  "model_pick", "actual_winner", "correct"]]
 
+    # Dashboard payloads derived from the SAME OOF rows (never fabricated):
+    # reliability buckets (fixed 10-bin), per-day summary, and per-member
+    # OOF metrics for the monitor's ensemble table.
+    calibration_buckets = _calibration_buckets(cal.tolist(), y_arr.tolist())
+    daily = _daily_summary(hist)
+    ensemble = _ensemble_members(member_p, y_all, weights)
+
     return {
         "oof": oof,
         "predictions_history": oof[["game_pk", "home_win_prob_model"]],
         "predictions_history_frame": hist,
+        "calibration_buckets": calibration_buckets,
+        "daily": daily,
+        "ensemble": ensemble,
         "weights": weights,
         "metrics": {**pooled,
                     "brier_calibrated": pooled_cal["brier"],
@@ -386,6 +397,87 @@ def train_moneyline_ensemble(
         "n_games": int(len(oof)),
         "n_folds": int(oof["fold_idx"].nunique()),
     }
+
+
+def _calibration_buckets(cal_probs: list[float],
+                         outcomes: list[float],
+                         n_buckets: int = 10) -> list[dict]:
+    """Reliability-curve buckets over the calibrated OOF probabilities:
+    fixed equal-width bins on [0, 1]; each carries mean_predicted /
+    mean_actual / count. Empty list when no rows — never fabricated."""
+    if not cal_probs or len(cal_probs) != len(outcomes):
+        return []
+    edges = [i / n_buckets for i in range(n_buckets + 1)]
+    buckets: list[dict] = []
+    for i in range(n_buckets):
+        lo, hi = edges[i], edges[i + 1]
+        members = [p for p in cal_probs
+                   if (lo <= p < hi)
+                   or (i == n_buckets - 1 and p == hi)]
+        if not members:
+            continue
+        idx = [j for j, p in enumerate(cal_probs)
+               if (lo <= p < hi) or (i == n_buckets - 1 and p == hi)]
+        buckets.append({
+            "bucket": f"{lo:.1f}-{hi:.1f}",
+            "mean_predicted": round(float(np.mean(members)), 5),
+            "mean_actual": round(float(np.mean(
+                [outcomes[j] for j in idx])), 5),
+            "count": int(len(members)),
+        })
+    return buckets
+
+
+def _daily_summary(hist: pd.DataFrame, max_days: int = 400) -> list[dict]:
+    """Per-day pick record + metrics from the OOF history frame (the same
+    rows the Calibration page's history table reads). Days sort oldest →
+    newest; bounded so the artifact stays small."""
+    if hist is None or hist.empty or "game_date" not in hist.columns:
+        return []
+    h = hist.copy()
+    h["_day"] = pd.to_datetime(h["game_date"], errors="coerce").dt.date
+    h = h.dropna(subset=["_day"])
+    daily: list[dict] = []
+    for day, grp in h.groupby("_day"):
+        wins = int((grp["correct"] == 1).sum())
+        losses = int((grp["correct"] == 0).sum())
+        probs = [float(v) for v in grp["home_win_prob_model"]]
+        outs = [float(v) for v in grp["home_win"]]
+        daily.append({
+            "date": day.strftime("%Y%m%d"),
+            "n_games": int(len(grp)),
+            "wins": wins,
+            "losses": losses,
+            "metrics": {
+                "brier": round(float(brier_score(probs, outs)), 5),
+                "logloss": round(float(log_loss(probs, outs)), 5),
+                "ece": round(float(_ece(probs, outs)), 5),
+            },
+        })
+    daily.sort(key=lambda r: r["date"])
+    return daily[-max_days:]
+
+
+def _ensemble_members(member_p: dict[str, list[float]],
+                      y_all: list[float],
+                      weights: dict[str, float]) -> list[dict]:
+    """Per-member OOF metrics + final blend weight (the monitor's ensemble
+    table). Only members that produced OOF probabilities appear."""
+    members: list[dict] = []
+    for name, ps in member_p.items():
+        if not ps or len(ps) != len(y_all):
+            continue
+        m = oof_metrics(ps, y_all)
+        members.append({
+            "name": name,
+            "weight": round(float(weights.get(name, 0.0)), 4),
+            "auc": m.get("auc"),
+            "brier": m.get("brier"),
+            "logloss": m.get("logloss"),
+            "n_eval": m.get("n"),
+        })
+    members.sort(key=lambda e: -float(e.get("weight") or 0.0))
+    return members
 
 
 def predict_slate_moneyline(

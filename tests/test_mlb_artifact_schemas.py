@@ -46,6 +46,7 @@ FIXTURE_TO_FAMILY = {
     "feature_coverage": "feature_coverage",
     "feature_drift": "feature_drift",
     "run_engine_oof": "run_engine_oof",
+    "game_level_features": "game_level_features",
 }
 
 

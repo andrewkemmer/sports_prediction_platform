@@ -371,7 +371,8 @@ class TestScheduleSource:
         assert df["game_pk"].is_unique
         assert list(df.columns) == ["game_pk", "game_date",
                                     "start_time_utc",
-                                    "coded_game_state", "detailed_state"]
+                                    "coded_game_state", "detailed_state",
+                                    "sp_name_home", "sp_name_away"]
 
     def test_incremental_fetches_only_uncovered_days_and_preserves_cache(
             self, tmp_path):

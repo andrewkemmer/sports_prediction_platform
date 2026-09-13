@@ -54,6 +54,9 @@ from sports.mlb.features.registry import (
     MONEYLINE_FEATURE_COLS,
 )
 
+from sports.mlb.frames import (ELO_HOME_ADV, ELO_K, MLB_TEAM_NAMES,
+                               compute_elo_entries)
+
 #: §7.1 per-field availability coverage (B-001-RESIDUAL, r6): the union
 #: of both frozen contracts — every field the slate predictions may
 #: consume carries a declared availability class and is gated.
@@ -250,6 +253,29 @@ def run_mlb_production(
 
         # Prediction-window slate rows (pre-game, PIT-carried state).
         slate = _build_slate(game_df, pred_window)
+        # §5 schedule source: pregame-known probable pitchers (source-
+        # populated StatsAPI fields, never fabricated) — the card's
+        # ``sp_name_*`` come from here when the feature frame cannot
+        # supply them.
+        _sched_path = cache.parent / "schedule.parquet"
+        if _sched_path.exists() and not slate.empty:
+            _sp = pd.read_parquet(_sched_path)
+            if {"game_pk", "sp_name_home", "sp_name_away"} \
+                    <= set(_sp.columns):
+                _sp = _sp.dropna(subset=["game_pk"]).drop_duplicates(
+                    "game_pk").set_index("game_pk")
+                _pk = pd.to_numeric(slate["game_pk"], errors="coerce")\
+                    .astype("Int64")
+                for _col in ("sp_name_home", "sp_name_away"):
+                    if _col not in slate.columns \
+                            or slate[_col].isna().any():
+                        slate[_col] = slate[_col] if _col in slate.columns \
+                            else pd.NA
+                        slate[_col] = slate[_col].fillna(
+                            _pk.map(_sp[_col]))
+                logger.info("slate probable pitchers: %d/%d populated",
+                            int(slate["sp_name_home"].notna().sum()),
+                            len(slate))
         # B-001 WS4: SECONDARY slate gate (every served start at/after the
         # serving-window lower bound, no decided rows) — loud on violation;
         # NOT §7.1 PIT evidence.
@@ -395,6 +421,11 @@ def run_mlb_production(
                 columns=["feature", "window", "n_games", "n_nonnull",
                          "pct_nonnull", "n_measured", "pct_measured",
                          "n_default_zero", "status"]),
+            # §22 Amendment 11 support artifact: the decided frame's core
+            # columns — board-finals reconciliation + markets team bridge.
+            game_level_features=decided.reindex(
+                columns=["game_pk", "game_date", "home_team", "away_team",
+                         "home_score", "away_score", "home_win"]),
         )
         # Per-slate-game SHAP artifacts (reference emits one file per game):
         # exact TreeSHAP from a final-fit LightGBM member over the frozen
@@ -520,23 +551,109 @@ def _todays_games_frame(slate: pd.DataFrame, moneyline: dict) -> pd.DataFrame:
 
 
 def _power_rankings_frame(decided: pd.DataFrame) -> pd.DataFrame:
+    """League-wide power rankings from the decided frame's FINAL state —
+    the most recent season-to-date Elo/record per team (display only;
+    every number is a settled result, never a projection).
+
+    The reference dashboard's rankings table reads rank / team / team_name
+    / elo / wins / losses / record / pct / run_diff / l10 / home_pct /
+    away_pct; L10 and splits are computed from the decided games themselves.
+    Empty frame (honest no-data) when the decided frame lacks the
+    enrichment columns.
+    """
     cols = ["rank", "team", "team_name", "elo", "wins", "losses", "record",
             "pct", "run_diff", "l10", "home_pct", "away_pct"]
-    frame = decided.reindex(columns=cols)
-    if frame.empty or "team" not in decided.columns:
+    need = {"game_date", "home_team", "away_team", "home_win",
+            "home_score", "away_score"}
+    if decided.empty or not need <= set(decided.columns):
         return pd.DataFrame(columns=cols)
-    return frame
+    d = decided.copy()
+    d["game_date"] = pd.to_datetime(d["game_date"], errors="coerce")
+    d = d.dropna(subset=["game_date"])
+    if d.empty:
+        return pd.DataFrame(columns=cols)
+    last_season = int(d["game_date"].dt.year.max())
+    cur = d[d["game_date"].dt.year == last_season]
+    if cur.empty:
+        return pd.DataFrame(columns=cols)
+
+    # Final season Elo per team: run the PIT engine over the season's
+    # chronological games, then apply each team's last-game update (the
+    # engine's exact K/home-adv formula) so the table shows the CURRENT
+    # rating, not the last pre-game one.
+    srt = cur.sort_values("game_date", kind="stable").reset_index(drop=True)
+    elo_pre = compute_elo_entries(srt)
+    final_elo: dict[str, float] = {}
+    for idx in range(len(srt)):
+        row = srt.iloc[idx]
+        h, a = str(row["home_team"]), str(row["away_team"])
+        he, ae = float(elo_pre.iloc[idx]["home_elo"]), \
+            float(elo_pre.iloc[idx]["away_elo"])
+        hw = row.get("home_win")
+        if pd.isna(hw):
+            continue
+        hw = float(hw)
+        exp_h = 1.0 / (1.0 + 10 ** ((ae - he - ELO_HOME_ADV) / 400))
+        final_elo[h] = he + ELO_K * (hw - exp_h)
+        final_elo[a] = ae + ELO_K * ((1 - hw) - (1 - exp_h))
+
+    rows: list[dict] = []
+    for team in sorted(set(cur["home_team"]) | set(cur["away_team"])):
+        g = cur[(cur["home_team"] == team) | (cur["away_team"] == team)]
+        g = g.sort_values("game_date")
+        if g.empty:
+            continue
+        is_home = g["home_team"] == team
+        won = np.where(is_home, g["home_win"], 1 - g["home_win"]).astype(float)
+        scored = np.where(is_home, g["home_score"], g["away_score"]).astype(float)
+        allowed = np.where(is_home, g["away_score"], g["home_score"]).astype(float)
+        wins, losses = int(won.sum()), int((1 - won).sum())
+        n = wins + losses
+        if not n:
+            continue
+        # last 10: most recent completed games, most recent first
+        l10 = won[-10:]
+        l10_str = f"{int(l10.sum())}-{int((1 - l10).sum())}"
+        home_mask = is_home.to_numpy()
+        home_n = int(home_mask.sum())
+        away_n = n - home_n
+        home_w = float(won[home_mask].sum()) if home_n else 0.0
+        away_w = float(won[~home_mask].sum()) if away_n else 0.0
+        rows.append({
+            "team": team,
+            "team_name": MLB_TEAM_NAMES.get(team, team),
+            "elo": round(final_elo.get(team, float("nan")), 1)
+            if final_elo.get(team) is not None else np.nan,
+            "wins": wins,
+            "losses": losses,
+            "record": f"{wins}-{losses}",
+            "pct": round(wins / n, 3),
+            "run_diff": int((scored - allowed).sum()),
+            "l10": l10_str,
+            "home_pct": round(home_w / home_n, 3) if home_n else np.nan,
+            "away_pct": round(away_w / away_n, 3) if away_n else np.nan,
+        })
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    out = pd.DataFrame(rows)
+    out = out.sort_values(["elo", "pct", "run_diff"], ascending=False)\
+        .reset_index(drop=True)
+    out.insert(0, "rank", range(1, len(out) + 1))
+    return out[cols]
 
 
 def _calibration_payload(moneyline: dict, pred_window) -> dict:
+    """Calibration record — buckets/daily come from the training module's
+    OOF-derived payloads (real per-bin reliability + per-day record), never
+    the [] stubs the pre-r12 artifact shipped."""
     return {
         "date": pred_window.primary_date(),
         "n_games": int(moneyline.get("n_games", 0)),
         "trained_at": pd.Timestamp.utcnow().isoformat(),
         "metrics": moneyline.get("metrics", {}),
-        "calibration_buckets": [],
+        "calibration_buckets": moneyline.get("calibration_buckets", []),
         "calibration": moneyline.get("calibration", {}),
-        "daily": [],
+        "daily": moneyline.get("daily", []),
         "league_total": int(moneyline.get("n_games", 0)),
         "evening_games_league": 0,
     }
@@ -552,13 +669,13 @@ def _model_monitor_payload(moneyline: dict, study) -> dict:
         "drift_summary": {"warnings": [], "alerts": [], "features": []},
         "feature_drift": [],
         "feature_coverage": [],
-        "rolling_brier": [],
+        "rolling_brier": [],  # standalone record (r5); monitor reads it directly
         "brier_baseline": 0.25,
         "brier_baseline_label": "always-home (league base rate)",
         "rolling_brier_meta": {},
         "features_metadata": {},
         "run_engine": {},
-        "ensemble": moneyline.get("ensemble", []),
+        "ensemble": moneyline.get("ensemble", []),  # per-member OOF metrics
         "model_history": [],
         "version_history": [],
     }

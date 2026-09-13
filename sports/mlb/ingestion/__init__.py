@@ -138,7 +138,19 @@ REQUIRED_SCHEDULE_COLS: tuple[str, ...] = _SOURCES.required_columns["schedule"]
 
 def _schedule_game_row(game: dict) -> dict:
     """Map one StatsAPI schedule game object to the normalized row
-    (pure — the transport-independent half of the adapter)."""
+    (pure — the transport-independent half of the adapter).
+
+    Also captures the source-populated probable-pitcher names (§5: the
+    schedule endpoint carries ``teams.<side>.probablePitcher.fullName``).
+    They are OPTIONAL: a game with no announced probable maps to NaN —
+    availability is never fabricated.
+    """
+    teams = game.get("teams") or {}
+
+    def _prob_name(side: str):
+        p = (teams.get(side) or {}).get("probablePitcher") or {}
+        return p.get("fullName")
+
     return {
         "game_pk": game.get("gamePk"),
         "game_date": (game.get("gameDate") or "").split("T")[0],
@@ -146,6 +158,8 @@ def _schedule_game_row(game: dict) -> dict:
         "coded_game_state": (game.get("status") or {})
         .get("codedGameState"),
         "detailed_state": (game.get("status") or {}).get("detailedState"),
+        "sp_name_home": _prob_name("home"),
+        "sp_name_away": _prob_name("away"),
     }
 
 
@@ -158,7 +172,7 @@ def _default_fetch_schedule(day: date) -> list[dict]:
     import urllib.request
 
     url = (f"https://statsapi.mlb.com/api/v1/schedule?sportId=1"
-           f"&date={day.isoformat()}")
+           f"&date={day.isoformat()}&hydrate=probablePitcher")
     req = urllib.request.Request(
         url, headers={"User-Agent": "sports_prediction_platform/r10"})
     try:
@@ -192,7 +206,8 @@ def _schedule_rows_from_day(rows: list[dict]) -> pd.DataFrame:
             params={"missing_required_columns": missing})
     df["game_pk"] = pd.to_numeric(df["game_pk"], errors="coerce")
     df = df.dropna(subset=["game_pk", "game_date", "start_time_utc"])
-    for c in ("coded_game_state", "detailed_state"):
+    for c in ("coded_game_state", "detailed_state", "sp_name_home",
+              "sp_name_away"):
         if c not in df.columns:
             df[c] = np.nan
     return df

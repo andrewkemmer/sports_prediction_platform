@@ -457,7 +457,7 @@ def load_model_monitor(sport: str | None) -> Optional[dict]:
     data = load_json_artifact(sport, "model_monitor")
     if data is None:
         return None
-    return {
+    mon = {
         "date": data.get("date") or latest_artifact_date(sport, "model_monitor"),
         "version": data.get("version"),
         "last_retrained": data.get("last_retrained"),
@@ -472,6 +472,16 @@ def load_model_monitor(sport: str | None) -> Optional[dict]:
         "ensemble": data.get("ensemble", []) or [],
         "version_history": data.get("version_history", []) or [],
     }
+    # §22.1 standalone record: since r5 the rolling-Brier series ships as
+    # its OWN dated artifact (``rolling_brier_*.json`` with a ``series``
+    # list) — the monitor JSON carries no inline copy. When the monitor
+    # has no inline series, flatten the standalone record's series so the
+    # chart renders (MLB publishes it; other sports' glob may not match).
+    if not mon["rolling_brier"]:
+        rb = load_json_artifact(sport, "rolling_brier")
+        if isinstance(rb, dict) and isinstance(rb.get("series"), list):
+            mon["rolling_brier"] = rb["series"]
+    return mon
 
 
 def load_power_rankings(sport: str | None) -> pd.DataFrame:
@@ -483,10 +493,29 @@ def load_predictions_history(sport: str | None) -> pd.DataFrame:
 
 
 def load_markets(sport: str | None) -> tuple[pd.DataFrame, Optional[dict]]:
-    """(markets frame, meta dict) for the Totals & Run Lines page."""
+    """(markets frame, meta dict) for the Totals & Run Lines page.
+
+    §22 Amendment 11: when the sport's markets artifact carries no team
+    columns (MLB's run-engine ladder is game_pk-keyed), team names are
+    bridged from the ``game_level_features`` support artifact by game_pk
+    — the same reconciliation source the legacy frontend joined. The
+    bridge is display-only: an absent support artifact leaves the markets
+    frame untouched rather than fabricating names.
+    """
     sport = sports_config.normalize_sport_key(sport)
+    markets = load_csv_artifact(sport, "markets")
+    if (not markets.empty and "home_team" not in markets.columns
+            and "game_pk" in markets.columns):
+        bridge = load_csv_artifact(sport, "game_level_features")
+        if (not bridge.empty and "game_pk" in bridge.columns
+                and "home_team" in bridge.columns):
+            names = bridge.drop_duplicates("game_pk").set_index("game_pk")
+            for col in ("home_team", "away_team"):
+                if col in names.columns:
+                    markets[col] = (markets["game_pk"]
+                                    .map(names[col]))
     return (
-        load_csv_artifact(sport, "markets"),
+        markets,
         load_json_artifact(sport, "markets_meta"),
     )
 

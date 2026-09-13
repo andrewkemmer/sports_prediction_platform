@@ -24,3 +24,8 @@ pydantic==2.13.5
 pydantic-settings==2.15.0
 platformdirs==4.11.7
 tqdm==4.70.0
+# Frontend (§21 shared Streamlit dashboard — legacy-parity pins)
+streamlit==1.63.0
+altair==6.2.2
+requests==2.34.2
+streamlit-calendar==1.4.0

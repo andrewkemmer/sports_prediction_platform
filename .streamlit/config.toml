@@ -1,0 +1,10 @@
+# Shared dark theme for the multi-sport dashboard — mirrored from the
+# legacy MLB app (frontend/streamlit_theme.toml in the reference repo):
+# emerald accent on a very dark navy page.
+[theme]
+base = "dark"
+primaryColor = "#10B981"
+backgroundColor = "#0A1128"
+secondaryBackgroundColor = "#1E293B"
+textColor = "#E2E8F0"
+font = "sans serif"

@@ -395,6 +395,36 @@ def persist_feature_coverage(frame: pd.DataFrame, target_date_str: str,
     return out_path
 
 
+# ---------------------------------------------------------------------------
+# game_level_features (§22 Amendment 11 support artifact)
+# ---------------------------------------------------------------------------
+GAME_LEVEL_FEATURES_COLUMNS = ["game_pk", "game_date", "home_team",
+                               "away_team", "home_score", "away_score",
+                               "home_win"]
+
+
+def persist_game_level_features(frame: pd.DataFrame, target_date_str: str,
+                                out_dir: Path | str | None = None) -> Path:
+    """The decided game-level frame: reconciles stale board state against
+    authoritative finals and gives the markets page its game_pk →
+    team-names bridge (markets rows carry game_pk only)."""
+    out_path = Path(out_dir or ".") / \
+        f"game_level_features_{target_date_str}.csv"
+    missing = [c for c in GAME_LEVEL_FEATURES_COLUMNS
+               if c not in frame.columns]
+    if missing:
+        raise ValueError(f"game_level_features missing columns: {missing}")
+    out = frame[GAME_LEVEL_FEATURES_COLUMNS].copy()
+    out = out.dropna(subset=["game_pk"]).drop_duplicates(
+        subset=["game_pk"], keep="last")
+    out = out.sort_values("game_pk").reset_index(drop=True)
+    _check_columns(out, "game_level_features")
+    validate_record("mlb", "game_level_features", out)
+    _atomic_write_csv(out, out_path)
+    logger.info("game_level_features: %d rows -> %s", len(out), out_path.name)
+    return out_path
+
+
 def _check_json_keys(payload: dict, artifact: str) -> None:
     fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
     spec = fixture["artifacts"].get(artifact)
@@ -423,6 +453,7 @@ def write_all_artifacts(target_date_str: str, out_dir: Path | str,
                         shap_game_key: str = "",
                         feature_drift: pd.DataFrame,
                         feature_coverage: pd.DataFrame,
+                        game_level_features: pd.DataFrame | None = None,
                         ) -> list[Path]:
     """Write the full frontend artifact set for one production date.
 
@@ -444,6 +475,10 @@ def write_all_artifacts(target_date_str: str, out_dir: Path | str,
         persist_run_engine_monitor(run_engine_monitor, target_date_str, out),
         persist_feature_drift(feature_drift, target_date_str, out),
         persist_feature_coverage(feature_coverage, target_date_str, out),
+        persist_game_level_features(
+            game_level_features if game_level_features is not None
+            else pd.DataFrame(columns=GAME_LEVEL_FEATURES_COLUMNS),
+            target_date_str, out),
     ]
     if shap_game is not None and not shap_game.empty:
         written.append(persist_shap_game(shap_game, target_date_str,

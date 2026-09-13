@@ -138,6 +138,26 @@ ELO_HOME_ADV = 65
 ELO_REVERT_FACTOR = 1 / 3
 ELO_START = 1500.0
 
+#: MLB team abbreviation → full name (the frontend's card/table display
+#: fallback; artifacts carry ``team_name`` where the backend publishes it).
+MLB_TEAM_NAMES: dict[str, str] = {
+    "NYY": "New York Yankees", "BOS": "Boston Red Sox", "TB": "Tampa Bay Rays",
+    "TOR": "Toronto Blue Jays", "BAL": "Baltimore Orioles",
+    "CLE": "Cleveland Guardians", "DET": "Detroit Tigers",
+    "MIN": "Minnesota Twins", "CWS": "Chicago White Sox",
+    "KC": "Kansas City Royals", "HOU": "Houston Astros",
+    "SEA": "Seattle Mariners", "TEX": "Texas Rangers",
+    "LAA": "Los Angeles Angels", "ATH": "Athletics", "OAK": "Oakland Athletics",
+    "ATL": "Atlanta Braves", "PHI": "Philadelphia Phillies",
+    "NYM": "New York Mets", "MIA": "Miami Marlins",
+    "WSH": "Washington Nationals", "MIL": "Milwaukee Brewers",
+    "CHC": "Chicago Cubs", "STL": "St. Louis Cardinals",
+    "PIT": "Pittsburgh Pirates", "CIN": "Cincinnati Reds",
+    "LAD": "Los Angeles Dodgers", "SD": "San Diego Padres",
+    "SF": "San Francisco Giants", "AZ": "Arizona Diamondbacks",
+    "ARI": "Arizona Diamondbacks", "COL": "Colorado Rockies",
+}
+
 
 def _row_year(row: pd.Series) -> int | None:
     gd = row.get("game_date")

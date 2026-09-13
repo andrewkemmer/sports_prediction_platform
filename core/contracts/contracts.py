@@ -426,6 +426,9 @@ def default_artifact_contract(sport: str,
             ("feature_coverage", "feature_coverage_*.csv", "csv"),
             ("rolling_brier", "rolling_brier_*.json", "json"),
             ("run_engine_oof", "run_engine_oof_*.csv", "csv"),
+            # §22 Amendment 11 support artifact: decided-game frame for
+            # board-finals reconciliation + markets team-name bridging.
+            ("game_level_features", "game_level_features_*.csv", "csv"),
         ]
     else:
         dated = [

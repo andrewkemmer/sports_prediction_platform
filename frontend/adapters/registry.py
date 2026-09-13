@@ -74,6 +74,11 @@ SPORTS = {
             "markets_meta": "run_engine_markets_*.meta.json",
             "markets_monitor": "run_engine_monitor_*.json",
             "model_monitor": "model_monitor_*.json",
+            "rolling_brier": "rolling_brier_*.json",
+            # §22 Amendment 11 support artifact: game_pk → team-names
+            # bridge for the markets ladder (markets rows carry game_pk
+            # only) and board-finals reconciliation.
+            "game_level_features": "game_level_features_*.csv",
             "shap_game": "shap_game_*.csv",
         },
         "participant": {
