@@ -1238,12 +1238,15 @@ def test_slate_window_anchors_are_window_derived_per_sport():
 
 
 def test_validate_available_at_has_call_site_per_sport():
-    """B-001 WS4 guardrail: the §7.1 per-field gate (validate_available_at,
-    report_only mode in 7.5d) has ≥1 production call site in every sport
-    runner — the metadata gap is operationally visible every run."""
+    """B-001 WS4 guardrail, r6 supersession: the §7.1 per-field gate has
+    ≥1 production call site in every sport runner. Since r6 the metadata
+    layer is LIVE (B-001-RESIDUAL closed): runners invoke the per-field
+    gate ``per_field_gate`` (core/features/availability.py), which stamps
+    every contract feature from its declared availability class and
+    reuses the tested §7.1 validator internally."""
     gaps = [s for s, p in _SPORT_RUNNERS.items()
-            if "validate_available_at" not in _calls_in(p)]
-    assert not gaps, f"validate_available_at missing in runners: {gaps}"
+            if "per_field_gate" not in _calls_in(p)]
+    assert not gaps, f"per_field_gate missing in runners: {gaps}"
 
 
 def test_validate_settlement_record_has_call_site_per_sport():

@@ -90,7 +90,7 @@ market:
 
 # §7.1 point-in-time gate (B-001, Phase 7.5d WS4): cutoff = game start − buffer.
 prediction_cutoff_buffer_minutes: 90   # must be 90 per §7.1 (NFL)
-availability_enforcement: report_only  # report_only | enforce (enforce = 7.6 metadata layer)
+availability_enforcement: enforce  # §7.1 metadata layer ACTIVE (r6): gate fails the run on missing/violating availability
 
 retention:
   frontend_days: 20            # 20-day rolling deletion for frontend artifacts (spec §23; B-003)

@@ -308,7 +308,9 @@ def test_s71_enforcement_mode_normalization():
     assert normalize_enforcement_mode("report_only", "x") == "report_only"
     assert normalize_enforcement_mode("enforce", "x") == "enforce"
     assert normalize_enforcement_mode(None, "x") == "report_only"
-    with pytest.raises(ValidationError, match="enforce.*reserved"):
+    # unknown modes still rejected — but 'enforce' is now the ACTIVATED
+    # r6 mode (B-001-RESIDUAL metadata layer), no longer reserved.
+    with pytest.raises(ValidationError):
         normalize_enforcement_mode("fail_open", "x")
 
 

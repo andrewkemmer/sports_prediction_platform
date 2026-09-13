@@ -185,6 +185,17 @@ files:
     class: production
     description: core.contracts artifact/model-output contracts
     topics: [feature_contract_validation, model_output_schema]
+  - path: tests/test_availability_metadata.py
+    class: production
+    description: >
+      §7.1 per-field availability metadata layer (B-001-RESIDUAL, r6):
+      coverage closed over the frozen contracts in BOTH directions,
+      conservative 24 h provenance leads, strict per-field gate (reusing
+      the §7.1 validator), fail-closed on unresolvable/undeclared input,
+      and the enforce-mode activation in all four study configs +
+      runners.
+    topics: [point_in_time_correctness, leakage_prevention,
+             feature_contract_validation]
   - path: tests/test_config_rules.py
     class: production
     description: >

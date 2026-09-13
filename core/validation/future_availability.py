@@ -337,12 +337,12 @@ def validate_settlement_record(record: dict, *, market_kind: str,
 
 def normalize_enforcement_mode(value, label: str) -> str:
     """Validate the ``availability_enforcement`` study key
-    (``report_only`` | ``enforce``). ``enforce`` is reserved for the
-    human-approved 7.6 metadata-layer phase."""
+    (``report_only`` | ``enforce``). ``enforce`` is the activated 7.6
+    mode (B-001-RESIDUAL metadata layer live since r6): the per-field
+    gate fails the run on missing/violating availability metadata."""
     mode = str(value or "report_only").strip().lower()
     if mode not in _ENFORCEMENT_MODES:
         raise ValidationError(
             f"{label}: availability_enforcement must be one of "
-            f"{_ENFORCEMENT_MODES} (got {value!r}); 'enforce' is "
-            "reserved for the Phase 7.6 metadata-layer activation")
+            f"{_ENFORCEMENT_MODES} (got {value!r})")
     return mode

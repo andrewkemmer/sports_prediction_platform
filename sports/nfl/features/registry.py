@@ -27,6 +27,7 @@ from core.contracts import (
     validate_columns_have_metadata,
     validate_metadata_is_reachable,
 )
+from core.features import require_classes_for
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +188,10 @@ def validate_registry() -> None:
     validate_metadata_is_reachable(
         "nfl", metadata,
         set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
+    # §7.1 B-001-RESIDUAL: every contract field carries an availability
+    # class — the PIT metadata layer is closed over the contracts.
+    require_classes_for(
+        "nfl", set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
 
 
 def build_feature_contract(

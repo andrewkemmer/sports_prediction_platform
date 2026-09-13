@@ -33,11 +33,21 @@ from core.config import PlatformConfig, default_config
 from core.config import load_market_rules
 from core.contracts import validate_record
 from core.validation.future_availability import (
-    validate_available_at,
     validate_settlement_record,
     validate_slate_window,
     window_anchor,
 )
+from core.features import per_field_gate
+from sports.nfl.features.registry import (
+    MARKET_FEATURE_COLS,
+    MONEYLINE_FEATURE_COLS,
+)
+
+#: §7.1 per-field availability coverage (B-001-RESIDUAL, r6): the union
+#: of both frozen contracts — every field the slate predictions may
+#: consume carries a declared availability class and is gated.
+_AVAILABILITY_FEATURES = tuple(dict.fromkeys(
+    (*MONEYLINE_FEATURE_COLS, *MARKET_FEATURE_COLS)))
 from core.artifacts import run_production_retention
 from core.config import resolve_run_window
 from sports.nfl.ingestion import (
@@ -289,17 +299,30 @@ def run_nfl_production(
         if not slate_report.ok:
             raise NFLRunnerError(
                 f"slate window gate failed: {slate_report.violations[:3]}")
-        # §7.1 per-field gate (report_only in 7.5d): telemetry every run.
-        pit_report = validate_available_at(
-            slate.to_dict(orient="records"),
+        # §7.1 per-field gate (B-001-RESIDUAL metadata layer, r6): every
+        # contract feature is stamped from its declared availability class
+        # and gated strictly against prediction_cutoff. In `enforce` mode
+        # (the activated 7.6 default) a non-ok gate FAILS the run before
+        # any prediction artifact is generated.
+        pit_report = per_field_gate(
+            slate,
+            sport="nfl",
+            start_col="gameday",
+            features=_AVAILABILITY_FEATURES,
             buffer_minutes=study.prediction_cutoff_buffer_minutes,
-            label="nfl availability (report_only)",
-            start_col="gameday", available_col="available_at")
+            label="nfl availability")
         logger.info(
-            "[B-001 §7.1] %s: n_rows=%d n_missing=%d n_violations=%d "
-            "missing_ids=%s (metadata layer = B-001-RESIDUAL, 7.6)",
-            pit_report.label, pit_report.n_rows, pit_report.n_missing,
-            pit_report.n_violations, list(pit_report.missing)[:3])
+            "[B-001 §7.1 per-field] %s: fields=%d rows=%d n_missing=%d "
+            "n_violations=%d failing=%s (mode=%s)",
+            pit_report.label, pit_report.n_fields,
+            pit_report.n_rows_per_field, pit_report.n_missing,
+            pit_report.n_violations,
+            list(pit_report.failing_fields())[:3],
+            study.availability_enforcement)
+        if study.availability_enforcement == "enforce" and not pit_report.ok:
+            raise NFLRunnerError(
+                "§7.1 availability gate failed (enforce): "
+                f"{pit_report.failing_fields()[:5]}")
         if not slate.empty:
             slate = slate.sort_values("gameday").reset_index(drop=True)
             p_home = predict_slate(final_models, slate, weights, study)

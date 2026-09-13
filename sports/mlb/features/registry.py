@@ -31,6 +31,7 @@ from core.contracts import (
     validate_columns_have_metadata,
     validate_metadata_is_reachable,
 )
+from core.features import require_classes_for
 from core.validation import ValidationError, require_columns
 
 
@@ -529,6 +530,10 @@ def validate_registry() -> None:
     validate_metadata_is_reachable(
         "mlb", declared,
         set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
+    # §7.1 B-001-RESIDUAL: every contract field carries an availability
+    # class — the PIT metadata layer is closed over the contracts.
+    require_classes_for(
+        "mlb", set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
     # (3) the moneyline-marked entries are EXACTLY the moneyline view.
     if moneyline_marked != set(MONEYLINE_FEATURE_COLS):
         raise FeatureRegistryError(
