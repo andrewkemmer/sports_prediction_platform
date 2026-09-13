@@ -30,3 +30,8 @@ data_delivery/
 
 # Agent session scratch (local logs only) — never committed
 .freebuff/
+
+# Operational run evidence (regenerated per run; never committed)
+ops/probes/
+ops/_probe_cache/
+ops/*.log

@@ -386,8 +386,10 @@ def fold_summary(folds: list) -> dict:
 def fold_table(df: pd.DataFrame, folds: list,
                date_col: str = "gameday") -> pd.DataFrame:
     """Per-fold reporting table (fold_id, train_end_date, validation window,
-    n_train, n_validation). ``df`` must be the SAME frame (same row order)
-    the folds were generated over."""
+    n_train, n_val). ``df`` must be the SAME frame (same row order)
+    the folds were generated over. Column names match the immutable
+    artifact contract (``fold_table``: fold_id/n_train/n_val) and every
+    other fold-table producer in the platform."""
     rows = []
     dates = pd.to_datetime(df[date_col], errors="coerce")
     for f in folds:
@@ -398,6 +400,6 @@ def fold_table(df: pd.DataFrame, folds: list,
             "validation_start": f.val_start.date(),
             "validation_end": f.val_end.date(),
             "n_train": int(len(f.train_idx)),
-            "n_validation": int(len(f.val_idx)),
+            "n_val": int(len(f.val_idx)),
         })
     return pd.DataFrame(rows)

@@ -284,6 +284,39 @@ def test_s71_settlement_subgate_semantics():
         tie_allowed = False
         push_allowed = False
 
+    # r10 (§20 completion): each market kind settles under its OWN §20
+    # vocabulary — a spread/total landing exactly on the line is that
+    # MARKET's push, never a moneyline outcome. Caught on real 2019
+    # nflverse data (2019_02_DAL_WAS fair-spread push) by the live smoke.
+    assert validate_settlement_record(
+        {"outcome": "push", "scope": "full_game"}, market_kind="spread",
+        settlement_cfg=Cfg()).ok
+    assert validate_settlement_record(
+        {"outcome": "home_cover", "scope": "full_game"},
+        market_kind="spread", settlement_cfg=Cfg()).ok
+    assert validate_settlement_record(
+        {"outcome": "away_cover", "scope": "full_game"},
+        market_kind="spread", settlement_cfg=Cfg()).ok
+    assert validate_settlement_record(
+        {"outcome": "over", "scope": "full_game"}, market_kind="total",
+        settlement_cfg=Cfg()).ok
+    assert validate_settlement_record(
+        {"outcome": "under", "scope": "full_game"}, market_kind="total",
+        settlement_cfg=Cfg()).ok
+    assert validate_settlement_record(
+        {"outcome": "push", "scope": "full_game"}, market_kind="total",
+        settlement_cfg=Cfg()).ok
+    # cross-kind outcomes are INVALID: a moneyline 'home' is not a total
+    # outcome; an 'over' is not a moneyline outcome.
+    for bad_kind, bad_outcome in (("total", "home"),
+                                  ("moneyline", "over"),
+                                  ("moneyline", "home_cover"),
+                                  ("spread", "over")):
+        bad = validate_settlement_record(
+            {"outcome": bad_outcome, "scope": "full_game"},
+            market_kind=bad_kind, settlement_cfg=Cfg())
+        assert not bad.ok and "not valid for market kind" in bad.violations[0]
+
     assert validate_settlement_record(
         {"outcome": "home", "scope": "full_game"}, market_kind="moneyline",
         settlement_cfg=Cfg()).ok
@@ -298,6 +331,16 @@ def test_s71_settlement_subgate_semantics():
         {"outcome": "push"}, market_kind="moneyline",
         settlement_cfg=CfgNoPush())
     assert not nopush.ok
+
+    class CfgTieOk:
+        tie_allowed = True
+        push_allowed = False
+
+    # r10: NFL-style three-way moneyline — a tie outcome is valid exactly
+    # when the kind's config declares tie_allowed=True.
+    assert validate_settlement_record(
+        {"outcome": "tie", "scope": "full_game"}, market_kind="moneyline",
+        settlement_cfg=CfgTieOk()).ok
     scope_bad = validate_settlement_record(
         {"outcome": "home", "scope": "regulation"},
         market_kind="moneyline", settlement_cfg=Cfg())

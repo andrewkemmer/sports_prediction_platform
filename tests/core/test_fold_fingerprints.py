@@ -80,6 +80,18 @@ def _fold_signature(folds, df, id_col) -> list[list]:
     return sig
 
 
+def _fixture_store() -> Path:
+    """Materialize the committed raw fixtures into an ISOLATED temp store
+    and return its root (r10 integrity fix, mirrored from
+    test_matrix_hashes: evidence pins must hash the immutable fixture
+    inputs, never the live store/ that production FULL_REPULL overwrites)."""
+    import tempfile
+
+    from tests.raw_store_fixtures import ensure_raw_store
+
+    return ensure_raw_store(Path(tempfile.mkdtemp(prefix="spp-evidence-")))
+
+
 def _mlb():
     from core.folds import walk_forward_splits
     from sports.mlb.features.build_frame import build_features
@@ -87,8 +99,8 @@ def _mlb():
     from sports.mlb.config.study_config import load_mlb_study
 
     study = load_mlb_study()
-    game_df, _ = build_features("store/mlb/raw/pitches.parquet",
-                                output_dir="store/mlb/raw")
+    root = _fixture_store() / "mlb" / "raw"
+    game_df, _ = build_features(root / "pitches.parquet", output_dir=root)
     df = get_decided_frame(game_df).sort_values(
         "game_date").reset_index(drop=True)
     splits = walk_forward_splits(
@@ -110,7 +122,8 @@ def _nba():
     from sports.nba.config.study_config import load_nba_study
 
     study = load_nba_study()
-    sched = load_schedule_cache(Path("store/nba/raw/schedule.parquet"))
+    sched = load_schedule_cache(_fixture_store() / "nba" / "raw"
+                                / "schedule.parquet")
     sched = sched[(pd.to_numeric(sched["season"], errors="coerce")
                    >= min(study.warmup_seasons))]
     decided = sched[sched["home_score"].notna() & sched["away_score"].notna()]
@@ -132,7 +145,8 @@ def _nhl():
     from sports.nhl.config.study_config import load_nhl_study
 
     study = load_nhl_study()
-    sched = load_schedule_cache(Path("store/nhl/raw/schedule.parquet"))
+    sched = load_schedule_cache(_fixture_store() / "nhl" / "raw"
+                                / "schedule.parquet")
     decided = sched[sched["home_score"].notna() & sched["away_score"].notna()]
     df = build_game_features(decided).sort_values(
         "game_date").reset_index(drop=True)
@@ -152,7 +166,7 @@ def _nfl():
     from sports.nfl.config.study_config import load_nfl_study
 
     study = load_nfl_study()
-    cache = Path("store/nfl/raw")
+    cache = _fixture_store() / "nfl" / "raw"
     current_season = PINNED_CURRENT_SEASON
     seasons = sorted(set(
         list(range(study.oof_first_season, current_season + 1))

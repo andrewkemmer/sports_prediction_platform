@@ -23,6 +23,7 @@ frontend/        Streamlit dashboard: app.py + components/ + adapters/ + readers
 experiments/     durable, allowlisted experiment scaffolding (empty by default)
 tests/           closed, manifest-enforced production-contract suite
 docs/            phase ledger and governance documents (`docs/TRACKER.md`)
+ops/             operational tooling: §27 certification source probes (network-bound, run manually; never imported by production or tests)
 store/           local raw / feature / model stores (gitignored, never committed)
 ```
 

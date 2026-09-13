@@ -51,6 +51,7 @@ ALLOWED_TOP_LEVEL_DIRS = {
     "experiments",
     "tests",
     "docs",
+    "ops",
     # Data/config trees the platform already owns (never guardrail-cleaned).
     "data_delivery",
     "store",
@@ -1223,6 +1224,23 @@ def test_validate_available_at_has_call_site_per_sport():
     gaps = [s for s, p in _SPORT_RUNNERS.items()
             if "per_field_gate" not in _calls_in(p)]
     assert not gaps, f"per_field_gate missing in runners: {gaps}"
+
+
+def test_runners_have_s3_cli_entry():
+    """§3 production interface (r10): ``python sports/<sport>/
+    run_production.py`` is a spec production command — every runner
+    module must carry a ``__main__`` guard and an entry function that
+    resolves the window from the environment and logs the resolved
+    prediction window + FULL_REPULL mode."""
+    for sport, path in _SPORT_RUNNERS.items():
+        src = path.read_text(encoding="utf-8")
+        assert 'if __name__ == "__main__":' in src, (
+            f"{sport}: run_production.py lacks the §3 __main__ entry")
+        assert "_run_and_log" in src, (
+            f"{sport}: run_production.py lacks the §3 CLI entry function")
+        assert "resolved prediction window" in src, (
+            f"{sport}: the §3 banner (resolved window + repull mode) is "
+            "missing from the CLI entry")
 
 
 def test_validate_settlement_record_has_call_site_per_sport():

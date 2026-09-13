@@ -21,6 +21,16 @@ window scopes only which days are ingested and served.
 
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+
+# §3 direct execution bootstrap: `python sports/<sport>/run_production.py`
+# must work without PYTHONPATH — insert the repo root before the `core`
+# imports below.
+_REPO_ROOT = _Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_REPO_ROOT))
+
 import logging
 import os
 from dataclasses import dataclass, field
@@ -822,3 +832,43 @@ def _write_slate_shap(out_dir: Path, run_date: str, slate: pd.DataFrame,
     if len(set(keys)) != len(keys):
         raise NBARunnerError("nba_shap_game keys are not unique per game")
     return written
+
+
+def _run_and_log() -> int:
+    """Resolve the window from the environment, print the §3 banner
+    (resolved prediction window + repull mode FIRST), run, and print
+    the final summary. Exit 0 on success; the failure is logged loudly
+    and the process exits 1."""
+    import logging
+    import os
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    log = logging.getLogger("nba.run_production")
+    up = "nba".upper()
+    try:
+        window = resolve_run_window(
+            start_date=os.environ[f"{up}_START_DATE"],
+            end_date=os.environ[f"{up}_END_DATE"],
+            full_repull=os.environ[f"{up}_FULL_REPULL"])
+    except KeyError as exc:
+        log.error("missing required environment variable: %s", exc)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        log.error("invalid run window configuration: %s", exc)
+        return 1
+    log.info("[%s] resolved prediction window: %s .. %s | FULL_REPULL=%s",
+             up, window.start_date, window.end_date, window.full_repull)
+    try:
+        result = run_nba_production()
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        log.error("[%s] PRODUCTION RUN FAILED: %s: %s",
+                  up, type(exc).__name__, exc)
+        return 1
+    log.info("[%s] PRODUCTION RUN COMPLETE: %s", up, result)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_and_log())

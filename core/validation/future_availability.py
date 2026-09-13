@@ -291,9 +291,13 @@ def validate_settlement_record(record: dict, *, market_kind: str,
     market record (one market type per record, per rule 8).
 
     Checks:
-    * the record carries a win/loss/push(/tie) outcome consistent with
-      the market kind's allowed masses (``tie_allowed`` from
-      ``settlement_cfg(market_kind)``; push only where ``push_allowed``);
+    * the record carries an outcome from the MARKET KIND's own §20
+      vocabulary (moneyline: home/away/tie; spread: home_cover/
+      away_cover/push; total: over/under/push) — a spread/total landing
+      exactly on the line is that MARKET's push, never a moneyline
+      outcome;
+    * the outcome is allowed by the kind's config (``tie_allowed``/
+      ``push_allowed``);
     * scope: regulation moneyline records must not settle full-game
       (overtime-inclusive) outcomes and vice versa (scope field, when
       present, must match the market kind).
@@ -303,10 +307,19 @@ def validate_settlement_record(record: dict, *, market_kind: str,
     push_allowed = bool(getattr(settlement_cfg, "push_allowed", False))
     outcome = record.get("outcome")
     scope = record.get("scope")
+    kind = ("total" if "total" in market_kind
+            else "spread" if any(t in market_kind for t in
+                                 ("spread", "run_line", "puck_line"))
+            else "moneyline")
+    vocab = {"moneyline": ("home", "away", "tie", "push"),
+             "spread": ("home_cover", "away_cover", "push"),
+             "total": ("over", "under", "push")}[kind]
     if outcome is None:
         violations.append(f"{label}: settled record missing 'outcome'")
-    elif outcome not in ("home", "away", "tie", "push"):
-        violations.append(f"{label}: unknown outcome {outcome!r}")
+    elif outcome not in vocab:
+        violations.append(
+            f"{label}: outcome {outcome!r} not valid for market kind "
+            f"{market_kind!r} (expected one of {vocab})")
     else:
         if outcome == "tie" and not tie_allowed:
             violations.append(

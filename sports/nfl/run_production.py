@@ -21,6 +21,16 @@ window scopes only which days are ingested and served.
 
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+
+# §3 direct execution bootstrap: `python sports/<sport>/run_production.py`
+# must work without PYTHONPATH — insert the repo root before the `core`
+# imports below.
+_REPO_ROOT = _Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_REPO_ROOT))
+
 import logging
 import os
 from dataclasses import dataclass, field
@@ -152,8 +162,14 @@ def run_nfl_production(
         # Eligible season window: warmup seasons + core seasons covering
         # the decided history (study-frozen); the current season covers
         # the prediction window. The run window scopes serving only.
-        current_season = window.end.year + 1 if window.end.month >= 3 \
-            else window.end.year
+        # NFL seasons are SINGLE-YEAR and run Sep..early-Feb: a window in
+        # Aug-Dec belongs to that calendar year's season; a Jan/Feb window
+        # belongs to the PREVIOUS year's season. (The former `end.year + 1
+        # if month >= 3` rule was an NBA/NHL end-year artifact — it asked
+        # nflreadpy for a nonexistent 2027 season and the fail-loud
+        # ingestion gate rejected it, caught in the r10 live smoke run.)
+        current_season = window.end.year if window.end.month >= 8 \
+            else window.end.year - 1
         seasons = sorted(set(
             list(range(study.oof_first_season, current_season + 1))
             + list(study.warmup_seasons)))
@@ -576,25 +592,47 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
             "y_push_fair": y_push_t,
             "y_cover_fair": y_cover, "y_push_spread_fair": y_push_s,
             "y_home_win": float(r.home_win),
+            # §20 three-way moneyline: home_win is the BINARY model target
+            # (ties encode 0), but settlement reads the actual margin.
+            "y_home_tie": 1.0 if r.margin == 0 else 0.0,
         }
 
     outs = [_outcome_row(r) for r in df.itertuples(index=False)]
     for c in outs[0]:
         df[c] = [o[c] for o in outs]
     # B-001 WS4 settlement sub-gate: every settled fair market record
-    # must carry a rule-consistent outcome (win/loss/push under the
-    # full-game moneyline config; distinct from the B-005 shape gate,
-    # NOT PIT evidence).
+    # must carry a rule-consistent outcome under ITS OWN market kind
+    # (§20: moneyline → home/away/tie; spread → home_cover/away_cover/
+    # push; total → over/under/push). A spread/total landing exactly on
+    # the fair line is that MARKET's push (the NFL config allows it) —
+    # it must never be folded into the moneyline kind, whose rule
+    # (correctly) forbids pushes. Distinct from the B-005 shape gate;
+    # NOT PIT evidence. Caught on real 2019 data by the r10 live smoke
+    # run: 2019_02_DAL_WAS pushed the fair spread and was (wrongly)
+    # gated under the moneyline rule.
+    ml_cfg = _MARKET_RULES.settlement_config("moneyline")
+    spread_cfg = _MARKET_RULES.settlement_config("spread")
+    total_cfg = _MARKET_RULES.settlement_config("total")
     for i, o in enumerate(outs):
-        outcome = ("push" if (o["y_push_fair"] == 1.0 or
-                              o["y_push_spread_fair"] == 1.0)
-                   else "home" if o["y_home_win"] == 1.0 else "away")
-        rec = validate_settlement_record(
-            {"outcome": outcome, "scope": "full_game"},                market_kind="moneyline",
-                settlement_cfg=_MARKET_RULES.settlement_config("moneyline"),
-                label=f"nfl fair market row {df['game_id'].iloc[i]}")
-        if not rec.ok:
-            raise NFLRunnerError(f"settlement gate failed: {rec.violations}")
+        gid = df["game_id"].iloc[i]
+        ml_outcome = ("tie" if o["y_home_tie"] == 1.0
+                      else "home" if o["y_home_win"] == 1.0 else "away")
+        for outcome, kind, cfg in (
+            (ml_outcome, "moneyline", ml_cfg),
+            ("push" if o["y_push_spread_fair"] == 1.0
+             else "home_cover" if o["y_cover_fair"] == 1.0
+             else "away_cover", "spread", spread_cfg),
+            ("push" if o["y_push_fair"] == 1.0
+             else "over" if o["y_over_fair"] == 1.0 else "under",
+             "total", total_cfg),
+        ):
+            rec = validate_settlement_record(
+                {"outcome": outcome, "scope": "full_game"},
+                market_kind=kind, settlement_cfg=cfg,
+                label=f"nfl fair market row {gid} [{kind}]")
+            if not rec.ok:
+                raise NFLRunnerError(
+                    f"settlement gate failed: {rec.violations}")
     return df
 
 
@@ -747,3 +785,42 @@ def _write_slate_shap(out_dir: Path, run_date: str, slate: pd.DataFrame,
     if len(set(keys)) != len(keys):
         raise NFLRunnerError("nfl_shap_game keys are not unique per game")
     return written
+
+
+def _run_and_log() -> int:
+    """Resolve the window from the environment, print the §3 banner
+    (resolved prediction window + repull mode FIRST), run, and print
+    the final summary. Exit 0 on success; the failure is logged loudly
+    and the process exits 1."""
+    import logging
+    import os
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    log = logging.getLogger("nfl.run_production")
+    try:
+        window = resolve_run_window(
+            start_date=os.environ["NFL_START_DATE"],
+            end_date=os.environ["NFL_END_DATE"],
+            full_repull=os.environ["NFL_FULL_REPULL"])
+    except KeyError as exc:
+        log.error("missing required environment variable: %s", exc)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        log.error("invalid run window configuration: %s", exc)
+        return 1
+    log.info("[NFL] resolved prediction window: %s .. %s | FULL_REPULL=%s",
+             window.start_date, window.end_date, window.full_repull)
+    try:
+        result = run_nfl_production()
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        log.error("[NFL] PRODUCTION RUN FAILED: %s: %s",
+                  type(exc).__name__, exc)
+        return 1
+    log.info("[NFL] PRODUCTION RUN COMPLETE: %s", result)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_and_log())
