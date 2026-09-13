@@ -31,7 +31,7 @@ from typing import Optional
 
 import pandas as pd
 
-import frontend.sports_config as sports_config
+import frontend.adapters.registry as sports_config
 
 try:  # caching is a runtime nicety, not a test dependency
     import streamlit as st
@@ -60,7 +60,7 @@ PAGE_BG = "#0A1128"
 UPSET_PROB_THRESHOLD = 0.35
 COIN_FLIP_THRESHOLD = 0.02
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------

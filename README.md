@@ -19,7 +19,7 @@ sports/mlb/      MLB pipeline: ingestion -> features -> training -> artifacts
 sports/nfl/      NFL pipeline (same capability set, sport-specific modules documented in GUARDRAILS §22)
 sports/nhl/      NHL pipeline
 sports/nba/      NBA pipeline
-frontend/        dashboard pages + artifact loaders (Streamlit)
+frontend/        Streamlit dashboard: app.py + components/ + adapters/ + readers/
 experiments/     durable, allowlisted experiment scaffolding (empty by default)
 tests/           closed, manifest-enforced production-contract suite
 docs/            phase ledger and governance documents (`docs/TRACKER.md`)

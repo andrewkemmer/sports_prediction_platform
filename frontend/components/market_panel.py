@@ -15,8 +15,8 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
-import sports_config
-import utils
+import frontend.adapters.registry as sports_config
+import frontend.readers.loaders as utils
 
 
 def _num(v):

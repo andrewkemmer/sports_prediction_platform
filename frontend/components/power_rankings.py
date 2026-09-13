@@ -10,8 +10,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-import sports_config
-import utils
+import frontend.adapters.registry as sports_config
+import frontend.readers.loaders as utils
 
 
 def _elo_color(elo: float, lo: float, hi: float) -> str:

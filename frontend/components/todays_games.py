@@ -15,8 +15,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-import sports_config
-import utils
+import frontend.adapters.registry as sports_config
+import frontend.readers.loaders as utils
 
 # The active sport's participant-matchup frame, set once per page render
 # (JSON matchup sports only; MLB leaves it None — sp_* fields are inline).

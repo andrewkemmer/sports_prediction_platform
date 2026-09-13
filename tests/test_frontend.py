@@ -15,8 +15,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from frontend import sports_config
-from frontend import utils as fu
+from frontend.adapters import registry as sports_config
+from frontend.readers import loaders as fu
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"

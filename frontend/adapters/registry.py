@@ -14,13 +14,13 @@ Single source of truth for:
 
 This module stays free of streamlit/pandas imports so backend tests can
 import it without a Streamlit runtime. The sidebar sport toggle in
-``Home.py`` writes ``st.session_state["sport"]``; ``utils.py`` resolves
+``app.py`` writes ``st.session_state["sport"]``; ``readers/loaders.py`` resolves
 artifact paths and adapters through this registry.
 """
 
 from pathlib import Path
 
-# Sidebar page order contract — mirrored by Home.py's literal `pages` list.
+# Sidebar page order contract — mirrored by app.py's literal `pages` list.
 ALL_PAGE_URL_PATHS = [
     "todays-games",
     "power-rankings",
@@ -174,14 +174,14 @@ def artifact_patterns(sport_key: str) -> dict:
 def data_delivery_dir(sport_key: str) -> Path:
     """Local data_delivery directory for the sport, resolved from the
     repo root (the parent of this frontend/ package)."""
-    return Path(__file__).resolve().parents[1] / resolve_sport(sport_key)["artifact_dir"]
+    return Path(__file__).resolve().parents[2] / resolve_sport(sport_key)["artifact_dir"]
 
 
 def sample_artifacts_dir() -> Path:
     """Tracked sample-artifact directory used by tests (and any offline
     demo mode): tests/fixtures/sample_artifacts. Layout mirrors a real
     data_delivery tree per sport so loaders resolve identically."""
-    return Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "sample_artifacts"
+    return Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "sample_artifacts"
 
 
 def active_page_url_paths(sport_key: str) -> list[str]:
