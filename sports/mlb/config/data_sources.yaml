@@ -22,6 +22,17 @@ sources:
       - batter
       - home_score
       - away_score
+  schedule:
+    # Free MLB StatsAPI schedule — the source-populated first-pitch
+    # instant (gameDate) that Statcast does NOT carry. The r10 live
+    # smoke run proved the §7.1 instant gates cannot be satisfied from
+    # Statcast alone; the schedule is merged onto the feature frame by
+    # game_pk. Required columns are the NORMALIZED row contract.
+    source_id: "mlb:statsapi.mlb.com/schedule"
+    required_columns:
+      - game_pk
+      - game_date
+      - start_time_utc
 
 policy:
   chunk_retries: 3

@@ -362,14 +362,44 @@ def run_nhl_production(
         result.n_prediction_games = int(len(slate))
 
         # Goalie enrichment (display only; bounded per-game boxscore pulls)
+        # r10 live-smoke fix: boxscores exist only for PLAYED games — an
+        # unplayed slate game's boxscore legitimately carries no goalie
+        # rows (the first FULL_REPULL crashed on exactly that). Pull the
+        # slate teams' PRIOR decided games (the enrichment's last-10
+        # window) plus any slate game already decided in the cached
+        # schedule (mid-window reruns); unplayed games are pulled by a
+        # LATER run once they appear decided. The ingestion-layer
+        # fail-loud guards stay intact: a DECIDED game with no goalie
+        # rows is still a loud schema-drift failure.
         goalie_cache = None
         if not slate.empty and not dry_run_ingestion:
             from sports.nhl.ingestion import (
                 load_goalie_cache,
                 pull_goalie_boxscores,
             )
-            goalie_ids = [str(g) for g in slate["game_id"]]
-            pull_goalie_boxscores(goalie_ids, cache / "goalie_panel.parquet")
+            slate_ids = [str(g) for g in slate["game_id"]]
+            done = (schedule["home_score"].notna()
+                    & schedule["away_score"].notna())
+            decided_ids = set(schedule.loc[done, "game_id"].astype(str))
+            pull_ids = [g for g in slate_ids if g in decided_ids]
+            prior_ids: set[str] = set()
+            for row in slate.itertuples(index=False):
+                gd = pd.Timestamp(row.game_date)
+                for team in (row.home_team, row.away_team):
+                    m = ((schedule["home_team"] == team)
+                         | (schedule["away_team"] == team))
+                    t = schedule.loc[m & done]
+                    t = t[pd.to_datetime(t["game_date"]) < gd]
+                    # each slate team's 10 most recent COMPLETED games
+                    # strictly before THIS slate game (the union over the
+                    # slate covers every last-10 window the enrichment
+                    # reads)
+                    prior = t.sort_values("game_date",
+                                          ascending=False).head(10)
+                    prior_ids.update(str(g) for g in prior["game_id"])
+            pull_goalie_boxscores(
+                list(dict.fromkeys(list(prior_ids) + pull_ids)),
+                cache / "goalie_panel.parquet")
             goalie_cache = load_goalie_cache(cache / "goalie_panel.parquet")
         elif not slate.empty:
             from sports.nhl.ingestion import load_goalie_cache

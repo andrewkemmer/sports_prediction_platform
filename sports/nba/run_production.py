@@ -379,10 +379,13 @@ def run_nba_production(
             )
             # Point-in-time panel seeding: the last-10 player window needs
             # each team's PRIOR completed games, so pull the boxscores of
-            # the games each slate team played BEFORE the slate — plus the
-            # slate games themselves (they enter the cache only as future
-            # priors for LATER runs; the current run excludes them via the
-            # strictly-prior `_gd < game_date` filter).
+            # the games each slate team played BEFORE the slate. r10
+            # live-smoke fix (mirrors the NHL fix): only DECIDED games are
+            # pulled — an unplayed game's boxscore carries no rows and the
+            # ingestion gate fails loud on it (a slate game enters the
+            # panel via a LATER run once it appears decided in the cached
+            # schedule; the current run's strictly-prior `_gd < game_date`
+            # filter already excludes it from every last-10 window).
             sched_all = load_schedule_cache(sched_path)
             gd_map = dict(zip(sched_all["game_id"].astype(str),
                               pd.to_datetime(
@@ -392,6 +395,7 @@ def run_nba_production(
             prior_ids: set[str] = set()
             done = (sched_all["home_score"].notna()
                     & sched_all["away_score"].notna())
+            decided_ids = set(sched_all.loc[done, "game_id"].astype(str))
             for row in slate.itertuples(index=False):
                 gd = pd.Timestamp(row.game_date)
                 for team in (row.home_team, row.away_team):
@@ -406,8 +410,12 @@ def run_nba_production(
                     prior = t.sort_values("game_date",
                                           ascending=False).head(10)
                     prior_ids.update(str(g) for g in prior["game_id"])
+            # prior decided games + any slate game already decided
+            # (mid-window reruns); never the unplayed ones (their
+            # boxscores legitimately carry no rows yet).
+            pull_ids = [g for g in slate_ids if g in decided_ids]
             pull_player_boxscores(
-                list(dict.fromkeys(list(prior_ids) + slate_ids)),
+                list(dict.fromkeys(list(prior_ids) + pull_ids)),
                 cache / "player_panel.parquet", game_dates=gd_map)
             player_cache = load_player_cache(cache / "player_panel.parquet")
         elif not slate.empty:

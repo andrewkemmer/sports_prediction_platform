@@ -15,11 +15,14 @@ import pytest
 from sports.mlb.features.raw.catalog import PITCH_IDENTITY_COLS, STATCAST_COLS
 from sports.mlb.ingestion import (
     EXTERNAL_SOURCES,
+    SOURCE_SCHEDULE,
     SOURCE_STATCAST,
     MLBIngestionError,
     _default_fetch,
+    _default_fetch_schedule,
     cache_bounds,
     normalize_columns,
+    pull_schedule,
     pull_statcast,
 )
 from tests.mlb_fixtures import make_statcast_games
@@ -288,3 +291,129 @@ def test_ad3_corrupt_cache_is_repulled(tmp_path, caplog):
                for r in caplog.records)
     assert returned == out
     assert len(pd.read_parquet(out)) == good  # recovered, not truncated
+
+
+class TestScheduleSource:
+    """The §5 MLB schedule source (StatsAPI): the source-populated
+    first-pitch instant that Statcast does NOT carry — proven live in the
+    r10 smoke (the §7.1 instant gates fail closed without it). The pull is
+    cache-first (§5): incremental runs fetch only days outside the cached
+    game-date span; FULL_REPULL refetches the whole span.
+
+    The default adapter itself (endpoint shape, ISO-8601 instants) was
+    verified live against statsapi.mlb.com during r10; these pins hold the
+    contract via the injectable seam, per the no-network test policy.
+    """
+
+    @staticmethod
+    def _rows(day: date) -> list[dict]:
+        if day.day % 3:  # games every 3rd day
+            return []
+        return [
+            {"game_pk": 700000 + day.day,
+             "game_date": day.isoformat(),
+             "start_time_utc": f"{day.isoformat()}T23:10:00Z",
+             "coded_game_state": "F", "detailed_state": "Final"},
+            {"game_pk": 710000 + day.day,
+             "game_date": day.isoformat(),
+             "start_time_utc": f"{day.isoformat()}T01:10:00Z",
+             "coded_game_state": "S", "detailed_state": "Scheduled"},
+        ]
+
+    def test_registry_declares_the_schedule_source(self):
+        assert EXTERNAL_SOURCES[SOURCE_SCHEDULE] == "_default_fetch_schedule"
+
+    def test_row_mapping_normalizes_and_drops_incomplete(self):
+        from sports.mlb.ingestion import _schedule_game_row, \
+            _schedule_rows_from_day
+        # pure per-game mapping: transport-independent
+        row = _schedule_game_row({"gamePk": 1,
+                                  "gameDate": "2026-09-08T23:10:00Z",
+                                  "status": {"codedGameState": "F",
+                                             "detailedState": "Final"}})
+        assert row["game_pk"] == 1
+        assert row["game_date"] == "2026-09-08"
+        assert row["start_time_utc"] == "2026-09-08T23:10:00Z"
+        assert row["coded_game_state"] == "F"
+        rows = [row,
+                {"game_pk": None, "gameDate": "2026-09-08T23:10:00Z",
+                 "status": {}},
+                {"gamePk": "bad", "gameDate": None, "status": {}}]
+        out = _schedule_rows_from_day(rows)
+        assert len(out) == 1
+        assert out.iloc[0]["game_pk"] == 1
+        assert out.iloc[0]["game_date"] == "2026-09-08"
+        assert out.iloc[0]["start_time_utc"] == "2026-09-08T23:10:00Z"
+
+    def test_empty_day_is_tolerated_full_window_empty_is_warned(
+            self, tmp_path, caplog):
+        out_path = tmp_path / "schedule.parquet"
+        # all-empty full window: tolerated (offseason/future), warning token
+        pull_schedule(D0, D0 + timedelta(days=2), out_path,
+                      full_repull=True, fetch=lambda day: [])
+        assert not out_path.exists()
+        assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+
+    def test_full_repull_fetches_whole_span_and_dedups(self, tmp_path):
+        out_path = tmp_path / "schedule.parquet"
+        calls: list[date] = []
+
+        def fetch(day: date) -> list[dict]:
+            calls.append(day)
+            return self._rows(day)
+
+        pull_schedule(D0, D0 + timedelta(days=6), out_path,
+                      full_repull=True, fetch=fetch)
+        assert len(calls) == 7
+        df = pd.read_parquet(out_path)
+        # days 3 and 6 carry 2 games each; dedup on game_pk keeps one
+        assert len(df) == 4
+        assert df["game_pk"].is_unique
+        assert list(df.columns) == ["game_pk", "game_date",
+                                    "start_time_utc",
+                                    "coded_game_state", "detailed_state"]
+
+    def test_incremental_fetches_only_uncovered_days_and_preserves_cache(
+            self, tmp_path):
+        out_path = tmp_path / "schedule.parquet"
+        calls: list[date] = []
+
+        def fetch(day: date) -> list[dict]:
+            calls.append(day)
+            return self._rows(day)
+
+        pull_schedule(D0, D0 + timedelta(days=6), out_path,
+                      full_repull=True, fetch=fetch)
+        calls.clear()
+        # extend forward: only the new days may be requested
+        pull_schedule(D0, D0 + timedelta(days=9), out_path,
+                      full_repull=False, fetch=fetch)
+        # cached game dates span 4/3..4/6 -> uncovered days are 4/1, 4/2
+        # and the forward extension 4/7..4/10 (the span semantics, per §5:
+        # makeup games inside the covered span await the next full repull)
+        assert calls == [D0, D0 + timedelta(days=1)] + \
+            [D0 + timedelta(days=d) for d in (6, 7, 8, 9)]
+        df = pd.read_parquet(out_path)
+        # cached 4 rows preserved + day-9 game (2) = 6
+        assert len(df) == 6
+
+    def test_fully_covered_request_makes_zero_calls(self, tmp_path):
+        out_path = tmp_path / "schedule.parquet"
+        pull_schedule(D0, D0 + timedelta(days=6), out_path,
+                      full_repull=True, fetch=self._rows)
+        calls: list[date] = []
+        # request exactly the cached game-date span (4/3..4/6)
+        pull_schedule(D0 + timedelta(days=2), D0 + timedelta(days=5),
+                      out_path, full_repull=False,
+                      fetch=lambda day: calls.append(day) or [])
+        assert calls == []  # cache-first: no upstream traffic
+
+    def test_corrupt_cache_repulled_on_full_mode(self, tmp_path, caplog):
+        out_path = tmp_path / "schedule.parquet"
+        pull_schedule(D0, D0 + timedelta(days=6), out_path,
+                      full_repull=True, fetch=self._rows)
+        good = len(pd.read_parquet(out_path))
+        out_path.write_bytes(b"not parquet")
+        pull_schedule(D0, D0 + timedelta(days=6), out_path,
+                      full_repull=True, fetch=self._rows)
+        assert len(pd.read_parquet(out_path)) == good  # healed

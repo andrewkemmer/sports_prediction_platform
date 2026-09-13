@@ -64,7 +64,8 @@ _EXPECTED_SETTLEMENT = {
 
 # The declared source registries per sport: {source name: source_id}.
 _EXPECTED_SOURCE_IDS = {
-    "mlb": {"statcast": "mlb:pybaseball.statcast"},
+    "mlb": {"statcast": "mlb:pybaseball.statcast",
+            "schedule": "mlb:statsapi.mlb.com/schedule"},
     "nfl": {
         "schedules": "nfl:nflreadpy.load_schedules",
         "pbp": "nfl:nflreadpy.load_pbp",

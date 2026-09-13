@@ -66,18 +66,23 @@ class MLBIngestionError(RuntimeError):
 
 
 SOURCE_STATCAST = "mlb:pybaseball.statcast"
+SOURCE_SCHEDULE = "mlb:statsapi.mlb.com/schedule"
 
 #: Declared external source registry: canonical source id -> the default
 #: adapter function that owns the real transport. Enforced by the B-007
 #: integration-smoke guardrail (tests/core/test_spec_guardrails.py).
-EXTERNAL_SOURCES: dict[str, str] = {SOURCE_STATCAST: "_default_fetch"}
+EXTERNAL_SOURCES: dict[str, str] = {
+    SOURCE_STATCAST: "_default_fetch",
+    SOURCE_SCHEDULE: "_default_fetch_schedule",
+}
 
 #: Required columns and transport policy — declared in
 #: ``config/data_sources.yaml`` (spec §5) and loaded once per process.
 #: The declared ``source_id`` is cross-checked against SOURCE_STATCAST so
 #: the registry and the policy file cannot drift apart silently.
 _SOURCES = load_data_sources("mlb")
-_REQUIRED_DECLARED_IDS = {"statcast": SOURCE_STATCAST}
+_REQUIRED_DECLARED_IDS = {"statcast": SOURCE_STATCAST,
+                          "schedule": SOURCE_SCHEDULE}
 if set(_SOURCES.required_columns) != set(_REQUIRED_DECLARED_IDS):
     raise DataSourcesError(
         "data_sources.yaml sources do not match the MLB ingestion "
@@ -88,6 +93,11 @@ if _SOURCES.source_ids.get("statcast") != SOURCE_STATCAST:
         f"data_sources.yaml source_id drift for 'statcast': "
         f"yaml={_SOURCES.source_ids.get('statcast')!r} "
         f"code={SOURCE_STATCAST!r}")
+if _SOURCES.source_ids.get("schedule") != SOURCE_SCHEDULE:
+    raise DataSourcesError(
+        f"data_sources.yaml source_id drift for 'schedule': "
+        f"yaml={_SOURCES.source_ids.get('schedule')!r} "
+        f"code={SOURCE_SCHEDULE!r}")
 CHUNK_RETRIES = _SOURCES.policy.chunk_retries
 CHUNK_RETRY_BASE_MS = _SOURCES.policy.chunk_retry_base_ms
 
@@ -106,14 +116,154 @@ APPROVED_DEGRADATIONS: dict[str, str] = {
         "core-season past-dated empties still abort loudly"),
     "mlb:cache-unreadable": (
         "a corrupt cache is re-pulled from the source"),
+    "mlb:schedule-empty-window": (
+        "a full-repull schedule window may legitimately contain no games "
+        "(offseason/future days); the cache stays as-is and a later pull "
+        "covers the span"),
 }
 
 REQUIRED_STATCAST_COLS: tuple[str, ...] = _SOURCES.required_columns["statcast"]
+REQUIRED_SCHEDULE_COLS: tuple[str, ...] = _SOURCES.required_columns["schedule"]
 
 
 # ---------------------------------------------------------------------------
 # Cache helpers
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# MLB StatsAPI schedule — the source-populated first-pitch instant
+# ---------------------------------------------------------------------------
+
+
+def _schedule_game_row(game: dict) -> dict:
+    """Map one StatsAPI schedule game object to the normalized row
+    (pure — the transport-independent half of the adapter)."""
+    return {
+        "game_pk": game.get("gamePk"),
+        "game_date": (game.get("gameDate") or "").split("T")[0],
+        "start_time_utc": game.get("gameDate"),
+        "coded_game_state": (game.get("status") or {})
+        .get("codedGameState"),
+        "detailed_state": (game.get("status") or {}).get("detailedState"),
+    }
+
+
+def _default_fetch_schedule(day: date) -> list[dict]:
+    """One day of the free MLB StatsAPI schedule (the real production
+    transport for first-pitch instants, which Statcast does NOT carry —
+    proven by the r10 live smoke run: the §7.1 instant gates fail closed
+    without this source)."""
+    import json
+    import urllib.request
+
+    url = (f"https://statsapi.mlb.com/api/v1/schedule?sportId=1"
+           f"&date={day.isoformat()}")
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "sports_prediction_platform/r10"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode())
+    except Exception as exc:  # noqa: BLE001 - typed below
+        raise MLBIngestionError(
+            f"MLB StatsAPI schedule transport failure for {day}: {exc}",
+            source=SOURCE_SCHEDULE, params={"date": day.isoformat()},
+            cause=exc) from exc
+    rows: list[dict] = []
+    for d in payload.get("dates", []):
+        for g in d.get("games", []):
+            rows.append(_schedule_game_row(g))
+    return rows
+
+
+def _schedule_rows_from_day(rows: list[dict]) -> pd.DataFrame:
+    """Normalize one day's schedule rows to the declared contract."""
+    import numpy as np
+
+    if not rows:
+        return pd.DataFrame(columns=list(REQUIRED_SCHEDULE_COLS))
+    df = pd.DataFrame(rows)
+    missing = [c for c in REQUIRED_SCHEDULE_COLS if c not in df.columns]
+    if missing:
+        raise MLBIngestionError(
+            f"MLB StatsAPI schedule payload missing REQUIRED column(s): "
+            f"{missing}",
+            source=SOURCE_SCHEDULE,
+            params={"missing_required_columns": missing})
+    df["game_pk"] = pd.to_numeric(df["game_pk"], errors="coerce")
+    df = df.dropna(subset=["game_pk", "game_date", "start_time_utc"])
+    for c in ("coded_game_state", "detailed_state"):
+        if c not in df.columns:
+            df[c] = np.nan
+    return df
+
+
+def pull_schedule(start_date: str | date, end_date: str | date,
+                  out_path: str | Path = "store/mlb/raw/schedule.parquet",
+                  *, full_repull: bool, fetch=None,
+                  today: date | None = None) -> Path:
+    """Pull the StatsAPI schedule for [start, end] into the Parquet cache
+    (one API call per day, dedup on game_pk, keep=last so re-delivered
+    games refresh their status). Future-dated days return empty rows —
+    tolerated (no games can exist there); the caller merges by game_pk.
+
+    §5 cache-first: incremental runs fetch only days OUTSIDE the cached
+    game_date span (history extension + forward gap incl. future slate
+    days); days inside the span are assumed settled schedule facts.
+    Makeup games scheduled into an already-covered past span are picked
+    up on the next FULL_REPULL=1 — the honest, documented tradeoff.
+    """
+    fetch = fetch or _default_fetch_schedule
+    start = start_date if isinstance(start_date, date) \
+        else date.fromisoformat(str(start_date))
+    end = end_date if isinstance(end_date, date) \
+        else date.fromisoformat(str(end_date))
+    out = Path(out_path)
+    resume_ok = out.exists() and not full_repull
+    days: list[date] = []
+    cursor = start
+    cached = pd.DataFrame()
+    if resume_ok:
+        try:
+            cached = pd.read_parquet(out)
+        except Exception:
+            cached = pd.DataFrame()
+        if not cached.empty:
+            gd = pd.to_datetime(cached["game_date"], errors="coerce").dt.date
+            lo, hi = gd.min(), gd.max()
+            while cursor <= end:
+                if cursor < lo or cursor > hi:
+                    days.append(cursor)
+                cursor += timedelta(days=1)
+            logger.info("schedule resume: cache covers %s..%s; "
+                        "fetching %d uncovered day(s)", lo, hi, len(days))
+        else:
+            resume_ok = False  # unreadable/empty cache: treat as no cache
+    if not resume_ok:
+        while cursor <= end:
+            days.append(cursor)
+            cursor += timedelta(days=1)
+    frames: list[pd.DataFrame] = []
+    for day in days:
+        rows = fetch(day)
+        if rows:
+            frames.append(_schedule_rows_from_day(rows))
+        time.sleep(0.25)  # rate-limit friendliness
+    if not frames:
+        if full_repull:
+            logger.warning(
+                "StatsAPI schedule: no rows for %s .. %s [%s]",
+                start, end, "mlb:schedule-empty-window")
+        return out
+    if not cached.empty:
+        frames.insert(0, cached)
+    combined = pd.concat(frames, ignore_index=True)
+    combined = combined.drop_duplicates(subset=["game_pk"], keep="last")
+    combined = combined.sort_values("game_pk").reset_index(drop=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_parquet(out, index=False)
+    logger.info("MLB schedule cache: %d games -> %s", len(combined), out)
+    return out
 
 
 def cache_bounds(path: Path) -> tuple[date | None, date | None]:

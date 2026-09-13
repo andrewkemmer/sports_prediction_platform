@@ -33,6 +33,7 @@ if str(_REPO_ROOT) not in _sys.path:
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -61,7 +62,7 @@ _AVAILABILITY_FEATURES = tuple(dict.fromkeys(
 from core.artifacts import run_production_retention
 from core.config import resolve_run_window
 from sports.mlb.artifacts import write_all_artifacts
-from sports.mlb.ingestion import pull_statcast
+from sports.mlb.ingestion import pull_schedule, pull_statcast
 from sports.mlb.config.study_config import load_mlb_study
 
 #: Settlement rules — declared in ``config/market_rules.yaml`` (spec §20)
@@ -140,15 +141,37 @@ def run_mlb_production(
     # ------------------------------------------------------------------
     # 2. Bounded ingestion (incremental or full repull; explicit flag).
     # ------------------------------------------------------------------
+    # §4: FULL_REPULL rebuilds the COMPLETE historical store from the
+    # STUDY-defined start date (data_start_date) — never just the run
+    # window (the r10 live smoke caught the window-only scope). The run
+    # window scopes SERVING only; training history comes from the study.
+    # A future-dated window end is clamped to today: no pitch data can
+    # exist past the present, and the chunker treats future chunks as
+    # tolerated empties anyway.
+    # study.data_start_date is compact (YYYYMMDD) — normalize to a date.
+    _ds = str(study.data_start_date).replace("-", "")
+    ingest_start = (f"{_ds[:4]}-{_ds[4:6]}-{_ds[6:]}" if len(_ds) == 8
+                    else study.data_start_date)
+    ingest_end = min(window.end, date.today())  # `end` is the date property
+    logger.info("ingestion scope: %s .. %s (study data_start_date; run "
+                "window scopes serving only)", ingest_start, ingest_end)
     if not dry_run_ingestion:
         # fetch=None means "use the real Statcast fetcher" — never pass None
         # down, which would override pull_statcast's own real default.
-        pull_statcast(window.start_date, window.end_date, out_path=cache,
+        pull_statcast(ingest_start, ingest_end, out_path=cache,
                       full_repull=window.full_repull,
                       **({"fetch": fetch} if fetch is not None else {}),
                       **({"today": today} if today is not None else {}))
+        # §5 schedule source: StatsAPI supplies the first-pitch instants
+        # Statcast does not carry (proven by the r10 live smoke: the §7.1
+        # instant gates fail closed without them). Scoped to the study
+        # history like Statcast, but NOT clamped to today — the future
+        # slate days' instants are exactly what the pregame gates need.
+        pull_schedule(ingest_start, window.end,
+                      out_path=cache.parent / "schedule.parquet",
+                      full_repull=window.full_repull)
     else:
-        logger.info("dry_run_ingestion: skipping Statcast fetch")
+        logger.info("dry_run_ingestion: skipping Statcast + schedule fetch")
 
     # ------------------------------------------------------------------
     # 3-5. Features → training → run engine → artifacts.
@@ -173,6 +196,37 @@ def run_mlb_production(
 
         game_df, pbp_df = build_features(cache,
                                          output_dir=cache.parent)
+        # §5 schedule merge: fail-closed population of start_time_utc by
+        # game_pk. Rows already carrying a source instant (fixture/evidence
+        # stores) pass through untouched; a decided Statcast game with no
+        # schedule match is a real integrity failure and must be loud.
+        if "start_time_utc" not in game_df.columns:
+            game_df["start_time_utc"] = pd.NaT
+        _need = game_df["start_time_utc"].isna()
+        if _need.any():
+            _sched_path = cache.parent / "schedule.parquet"
+            if not _sched_path.exists():
+                raise MLBRunnerError(
+                    "schedule cache missing (store/mlb/raw/schedule.parquet): "
+                    "Statcast carries no first-pitch instant and the §5 "
+                    "schedule source was not pulled — cannot serve")
+            _sched = pd.read_parquet(_sched_path)
+            _instants = _sched.set_index("game_pk")["start_time_utc"]
+            _instants.index = pd.to_numeric(_instants.index,
+                                            errors="coerce").astype("Int64")
+            _keys = pd.to_numeric(game_df.loc[_need, "game_pk"],
+                                  errors="coerce").astype("Int64")
+            _mapped = _keys.map(_instants)
+            _unmatched = int(_mapped.isna().sum())
+            if _unmatched:
+                _sample = game_df.loc[_need, "game_pk"][
+                    _mapped.isna()].head(5).tolist()
+                raise MLBRunnerError(
+                    f"{_unmatched} game row(s) have no StatsAPI schedule "
+                    f"match for start_time_utc (e.g. {_sample}) — fail-closed")
+            game_df.loc[_need, "start_time_utc"] = _mapped
+            logger.info("schedule merge: populated start_time_utc for %d "
+                        "row(s)", int(_need.sum()))
         decided = get_decided_frame(game_df)
         if decided.empty:
             raise MLBRunnerError(
@@ -221,7 +275,8 @@ def run_mlb_production(
             start_col="start_time_utc",
             features=_AVAILABILITY_FEATURES,
             buffer_minutes=study.prediction_cutoff_buffer_minutes,
-            label="mlb availability")
+            label="mlb availability",
+            game_id_col="game_pk")  # MLB's canonical key (Statcast+schedule)
         logger.info(
             "[B-001 §7.1 per-field] %s: fields=%d rows=%d n_missing=%d "
             "n_violations=%d failing=%s (mode=%s)",
