@@ -23,7 +23,7 @@ import pandas as pd
 
 from core.contracts import require_features_metadata
 from core.contracts import validate_record
-from sports.nba.feature_registry import MONEYLINE_CONTRACT_VERSION
+from sports.nba.features.registry import MONEYLINE_CONTRACT_VERSION
 
 logger = logging.getLogger(__name__)
 

@@ -79,13 +79,14 @@ README_EXEMPT_TOP_LEVEL = {
 #: Keys are module names; ``sport_module_path`` gives the canonical
 #: location inside each sport package after the r1/r2 restructure.
 SPORT_SHARED_CAPABILITIES = {
+    "adapter.py": "frontend serving-contract adapter (SportAdapter protocol)",
     "artifacts.py": "artifact writers / frontend artifact payloads",
     "catalog.py": "raw-field catalog and catalog helpers",
     "feature_registry.py": "versioned per-sport feature contracts",
     "features.py": "point-in-time feature builders and views",
     "ingestion.py": "external-source ingestion adapters",
     "optimization.py": "optimization harness adapter bindings",
-    "runner.py": "production run entry point (slate -> artifacts)",
+    "run_production.py": "production run entry point (slate -> artifacts)",
     "study_config.py": "study configuration + contract binding",
     "training.py": "walk-forward training / member ensemble",
 }
@@ -94,13 +95,14 @@ SPORT_SHARED_CAPABILITIES = {
 #: sport package (r1/r2 mapping; GUARDRAILS §14). Module names stay the
 #: record keys so the comparison logic is unchanged.
 SPORT_SHARED_CAPABILITY_PATHS = {
+    "adapter.py": "adapter.py",
     "artifacts.py": "artifacts.py",
     "catalog.py": "features/raw/catalog.py",
     "feature_registry.py": "features/registry.py",
     "features.py": "features/build_frame.py",
     "ingestion.py": "ingestion/__init__.py",
     "optimization.py": "optimization.py",
-    "runner.py": "run_production.py",
+    "run_production.py": "run_production.py",
     "study_config.py": "config/study_config.py",
     "training.py": "models/moneyline/training.py",
 }
@@ -117,19 +119,10 @@ SPORT_SHARED_CAPABILITY_GAPS: dict[str, tuple[str, ...]] = {}
 #: review item); ``reason`` states why the difference exists and, for
 #: permitted entries, what covers the capability in the sports that lack it.
 SPORT_STRUCTURE_DIFFERENCES = {
-    "adapter.py": {
-        "present": ("nfl", "nhl", "nba"),
-        "status": "permitted",
-        "reason": (
-            "TRANSITIONAL (r0/r1): the 7.6-A open finding is closed by "
-            "construction — Phase r1's approved scope adds "
-            "sports/mlb/adapter.py implementing the core.contracts.SportAdapter "
-            "protocol, at which point adapter.py becomes a shared capability "
-            "and this exception entry is removed in the same r1 commit that "
-            "lands it. Until then the record stays truthful: only the three "
-            "NNX sports carry it."
-        ),
-    },
+    # adapter.py left this record in r1: all four sports now implement the
+    # core.contracts.SportAdapter protocol (sports/mlb/adapter.py landed with
+    # the r1 MLB-adapter scope), so it is a shared capability above — the
+    # 7.6-A open finding is closed by construction.
     "distributions.py": {
         "path": "models/market/distributions.py",
         "present": ("nfl", "nhl", "nba"),
@@ -139,7 +132,7 @@ SPORT_STRUCTURE_DIFFERENCES = {
             "score distribution (game_distribution / apply_distribution) "
             "consumed by their runners and settlement tests. MLB needs no "
             "such module because it prices markets through run_engine.py "
-            "(per-game run distribution). Different modeling need. Post-r2 "
+            "(per-game run distribution). Different modeling need. Canonical "
             "path: models/market/distributions.py."
         ),
     },
@@ -217,7 +210,7 @@ SPORT_STRUCTURE_DIFFERENCES = {
             "MLB's per-side run models plus NB Monte-Carlo market pricing "
             "on a frozen 53-column lambda view — the per-game run "
             "distribution MLB's markets require. NNX cover the capability "
-            "with distributions.py. Post-r2 path: models/market/run_engine.py."
+            "with distributions.py. Canonical path: models/market/run_engine.py."
         ),
     },
 }
@@ -523,10 +516,10 @@ def test_no_bare_feature_contract_import_by_adapters():
     for path in _py_files("core", "sports"):
         if path.name in ("feature_registry.py", "study_config.py"):
             continue  # declaring modules / same-package provenance re-exports
-        for mod in _imports_from(path, "sports.mlb.feature_registry") \
-                + _imports_from(path, "sports.nba.study_config") \
-                + _imports_from(path, "sports.nfl.study_config") \
-                + _imports_from(path, "sports.nhl.study_config"):
+        for mod in _imports_from(path, "sports.mlb.features.registry") \
+                + _imports_from(path, "sports.nba.config.study_config") \
+                + _imports_from(path, "sports.nfl.config.study_config") \
+                + _imports_from(path, "sports.nhl.config.study_config"):
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"))
             except SyntaxError:
@@ -812,7 +805,8 @@ def _registry_call_sites() -> set[tuple[str, str]]:
 
 # The 9 designated runner-side OOF/fold-table write sites (3 per sport).
 RUNNER_VALIDATE_SITES = {
-    "sports/nfl/runner.py", "sports/nhl/runner.py", "sports/nba/runner.py",
+    "sports/nfl/run_production.py", "sports/nhl/run_production.py",
+    "sports/nba/run_production.py",
 }
 
 
@@ -869,10 +863,10 @@ def test_reserved_durable_names_have_no_registry_entries():
 #: module that declares `EXTERNAL_SOURCES` and the manifest-listed test
 #: module that must exercise those adapters end to end.
 _EXTERNAL_SOURCE_MODULES = {
-    "mlb": "sports/mlb/ingestion.py",
-    "nfl": "sports/nfl/ingestion.py",
-    "nhl": "sports/nhl/ingestion.py",
-    "nba": "sports/nba/ingestion.py",
+    "mlb": "sports/mlb/ingestion/__init__.py",
+    "nfl": "sports/nfl/ingestion/__init__.py",
+    "nhl": "sports/nhl/ingestion/__init__.py",
+    "nba": "sports/nba/ingestion/__init__.py",
 }
 _EXTERNAL_SMOKE_MODULES = {
     "mlb": "tests/test_mlb_ingestion.py",
@@ -929,6 +923,14 @@ def _external_source_registry(sport: str) -> dict[str, str]:
     return {}
 
 
+def _dotted_module(path_str: str) -> str:
+    """Dotted module path for a repo-relative file path, collapsing a
+    trailing ``__init__`` so ``sports/mlb/ingestion/__init__.py`` maps to
+    ``sports.mlb.ingestion`` (the name importers actually use)."""
+    name = path_str[:-3].replace("\\", "/").replace("/", ".")
+    return name[:-9] if name.endswith(".__init__") else name
+
+
 def _imported_names(path: Path, module: str) -> set[str]:
     out: set[str] = set()
     for node in ast.walk(_parse(path)):
@@ -951,8 +953,7 @@ def test_external_adapters_have_recorded_integration_smoke():
             offenders.append(f"{module}: EXTERNAL_SOURCES registry missing")
             continue
         smoke = Path(_EXTERNAL_SMOKE_MODULES[sport])
-        smoke_names = _imported_names(
-            smoke, module[:-3].replace("/", "."))
+        smoke_names = _imported_names(smoke, _dotted_module(module))
         if "EXTERNAL_SOURCES" not in smoke_names:
             offenders.append(
                 f"{_EXTERNAL_SMOKE_MODULES[sport]}: does not import "
@@ -1150,17 +1151,17 @@ def test_approved_degradations_are_declared_and_logged_per_sport():
 # ---------------------------------------------------------------------------
 
 _SPORT_RUNNERS = {
-    "mlb": REPO_ROOT / "sports" / "mlb" / "runner.py",
-    "nfl": REPO_ROOT / "sports" / "nfl" / "runner.py",
-    "nhl": REPO_ROOT / "sports" / "nhl" / "runner.py",
-    "nba": REPO_ROOT / "sports" / "nba" / "runner.py",
+    "mlb": REPO_ROOT / "sports" / "mlb" / "run_production.py",
+    "nfl": REPO_ROOT / "sports" / "nfl" / "run_production.py",
+    "nhl": REPO_ROOT / "sports" / "nhl" / "run_production.py",
+    "nba": REPO_ROOT / "sports" / "nba" / "run_production.py",
 }
 
 _STUDY_CONFIGS = {
-    "mlb": REPO_ROOT / "sports" / "mlb" / "study_config.py",
-    "nfl": REPO_ROOT / "sports" / "nfl" / "study_config.py",
-    "nhl": REPO_ROOT / "sports" / "nhl" / "study_config.py",
-    "nba": REPO_ROOT / "sports" / "nba" / "study_config.py",
+    "mlb": REPO_ROOT / "sports" / "mlb" / "config" / "study_config.py",
+    "nfl": REPO_ROOT / "sports" / "nfl" / "config" / "study_config.py",
+    "nhl": REPO_ROOT / "sports" / "nhl" / "config" / "study_config.py",
+    "nba": REPO_ROOT / "sports" / "nba" / "config" / "study_config.py",
 }
 
 _S71_BUFFERS = {"mlb": 60, "nhl": 60, "nfl": 90, "nba": 90}
@@ -1266,7 +1267,7 @@ def test_study_configs_bind_s71_buffer_keys():
         assert f"!= {expected}" in src, (
             f"{sport}: buffer not hard-pinned to {expected} per §7.1")
         assert "report_only" in src, sport
-        mod = importlib.import_module(f"sports.{sport}.study_config")
+        mod = importlib.import_module(f"sports.{sport}.config.study_config")
         cls = next(c for c in vars(mod).values()
                    if isinstance(c, type)
                    and hasattr(c, "__dataclass_fields__")
@@ -1288,10 +1289,10 @@ def test_mlb_slate_anchor_source_is_the_serving_windows_first_date():
     * ``resolve_prediction_window`` builds ``slate_dates`` as
       ``run_date + 0..lookahead_days`` (fields ``run_date``/``slate_dates``
       above), so ``slate_dates[0] == run_date``;
-    * ``sports/mlb/runner.py`` resolves that window from ``window.start_date``
+    * ``sports/mlb/run_production.py`` resolves that window from ``window.start_date"
       — the run window's FIRST date — so
       ``primary_date() == run_date == window.start_date``;
-    * ``sports.mlb.runner._build_slate`` keeps every row whose date is in
+    * ``sports.mlb.run_production._build_slate`` keeps every row whose date is in
       ``pred_window.slate_dates`` (primary + lookahead), so option (b)
       "MLB serves only primary-date games" is FALSE and the anchor must be
       the window's lower bound.
@@ -1308,7 +1309,7 @@ def test_mlb_slate_anchor_source_is_the_serving_windows_first_date():
     from core.config import resolve_prediction_window
     from core.validation.future_availability import (validate_slate_window,
                                                      window_anchor)
-    from sports.mlb.runner import _build_slate
+    from sports.mlb.run_production import _build_slate
 
     sport = default_config().sport("mlb")
     w = resolve_prediction_window("20260907", sport)

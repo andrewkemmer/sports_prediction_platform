@@ -406,7 +406,7 @@ def test_validate_record_mass_group_read_only():
     """Mass groups are read-only: a triple summing outside [0, 1+eps]
     fails; the validator never renormalizes."""
     from sports.mlb.artifacts import MARKET_COLUMNS_V3, persist_markets
-    from sports.mlb.run_engine import TOTAL_LINE_GRID
+    from sports.mlb.models.market.run_engine import TOTAL_LINE_GRID
     grid = {}
     for c in MARKET_COLUMNS_V3:
         if c.startswith(("p_over_", "p_under_")):
@@ -442,7 +442,7 @@ def test_require_features_metadata_accepts_every_sport_contract(sport):
     """Each sport's frozen registry contract serializes to a document the
     shared validator accepts: one entry per moneyline feature, each carrying
     the full FeatureSpec field set."""
-    module = importlib.import_module(f"sports.{sport}.feature_registry")
+    module = importlib.import_module(f"sports.{sport}.features.registry")
     meta = module.build_feature_contract().to_metadata_json("2026-09-01")
     assert require_features_metadata(sport, meta) is meta
     assert set(meta["features"]) == set(module.MONEYLINE_FEATURE_COLS)

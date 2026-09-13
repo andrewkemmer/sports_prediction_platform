@@ -82,9 +82,9 @@ def _fold_signature(folds, df, id_col) -> list[list]:
 
 def _mlb():
     from core.folds import walk_forward_splits
-    from sports.mlb.features import build_features
+    from sports.mlb.features.build_frame import build_features
     from sports.mlb.frames import get_decided_frame
-    from sports.mlb.study_config import load_mlb_study
+    from sports.mlb.config.study_config import load_mlb_study
 
     study = load_mlb_study()
     game_df, _ = build_features("store/mlb/raw/pitches.parquet",
@@ -105,9 +105,9 @@ def _mlb():
 
 def _nba():
     from core.folds import make_folds
-    from sports.nba.features import build_game_features
+    from sports.nba.features.build_frame import build_game_features
     from sports.nba.ingestion import load_schedule_cache
-    from sports.nba.study_config import load_nba_study
+    from sports.nba.config.study_config import load_nba_study
 
     study = load_nba_study()
     sched = load_schedule_cache(Path("store/nba/raw/schedule.parquet"))
@@ -127,9 +127,9 @@ def _nba():
 
 def _nhl():
     from core.folds import make_folds
-    from sports.nhl.features import build_game_features
+    from sports.nhl.features.build_frame import build_game_features
     from sports.nhl.ingestion import load_schedule_cache
-    from sports.nhl.study_config import load_nhl_study
+    from sports.nhl.config.study_config import load_nhl_study
 
     study = load_nhl_study()
     sched = load_schedule_cache(Path("store/nhl/raw/schedule.parquet"))
@@ -147,9 +147,9 @@ def _nhl():
 
 def _nfl():
     from core.folds import make_folds
-    from sports.nfl.features import build_game_features
+    from sports.nfl.features.build_frame import build_game_features
     from sports.nfl.ingestion import eligible_games, load_pbp, load_schedule
-    from sports.nfl.study_config import load_nfl_study
+    from sports.nfl.config.study_config import load_nfl_study
 
     study = load_nfl_study()
     cache = Path("store/nfl/raw")

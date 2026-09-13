@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sports.nhl.features import (
+from sports.nhl.features.build_frame import (
     build_game_features,
     build_slate_features,
     feature_coverage_report,
@@ -15,7 +15,7 @@ from sports.nhl.features import (
     team_stats_ladder,
     _haversine_miles,
 )
-from sports.nhl.study_config import MONEYLINE_FEATURE_COLS, load_nhl_study
+from sports.nhl.config.study_config import MONEYLINE_FEATURE_COLS, load_nhl_study
 from tests.nhl_fixtures import make_schedule
 
 

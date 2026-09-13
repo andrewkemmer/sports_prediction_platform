@@ -192,7 +192,7 @@ def test_mlb_adapter_binds_through_production_composition(monkeypatch, tmp_path)
 
     # Stub the production composition: the adapter must call it (wiring
     # under test), not reimplement it.
-    import sports.mlb.feature_registry as reg
+    import sports.mlb.features.registry as reg
 
     real_bcf = reg.build_candidate_frame
 
@@ -214,7 +214,7 @@ def test_mlb_adapter_binds_through_production_composition(monkeypatch, tmp_path)
     assert "margin" in df.columns and df["margin"].notna().all()
     # The incumbent view keeps NO twin-pair member (those form the
     # derivation pool); is_home has no away twin and stays served.
-    from sports.mlb.feature_registry import MONEYLINE_FEATURE_COLS as _FROZEN
+    from sports.mlb.features.registry import MONEYLINE_FEATURE_COLS as _FROZEN
     frozen = set(_FROZEN)
     assert not any(f.endswith("_home")
                    and f"{f[:-len('_home')]}_away" in frozen
@@ -239,7 +239,7 @@ def test_mlb_adapter_scope_pools_intersect_frame_columns(monkeypatch, tmp_path):
                                                                    pd.DataFrame()))
     monkeypatch.setattr(mod, "STORE", tmp_path)
 
-    import sports.mlb.feature_registry as reg
+    import sports.mlb.features.registry as reg
     real_bcf = reg.build_candidate_frame
 
     def fake_bcf(decided, **kwargs):
@@ -277,7 +277,7 @@ def test_mlb_adapter_slate_has_no_outcome_columns(monkeypatch, tmp_path):
                         lambda cache: (synth, pd.DataFrame()))
     monkeypatch.setattr(mod, "STORE", tmp_path)
 
-    import sports.mlb.feature_registry as reg
+    import sports.mlb.features.registry as reg
 
     real_bcf = reg.build_candidate_frame
 
@@ -314,7 +314,7 @@ def test_mlb_adapter_fold_filter_matches_study_rules(monkeypatch, tmp_path):
                         lambda cache: (synth, pd.DataFrame()))
     monkeypatch.setattr(mod, "STORE", tmp_path)
 
-    import sports.mlb.feature_registry as reg
+    import sports.mlb.features.registry as reg
 
     real_bcf = reg.build_candidate_frame
 
@@ -330,7 +330,7 @@ def test_mlb_adapter_fold_filter_matches_study_rules(monkeypatch, tmp_path):
     df = ads["mlb/moneyline"]["load_decided"]()
     folds = ads["mlb/moneyline"]["build_folds"](df)
     assert folds, "the synthetic frame must produce usable folds"
-    study = __import__("sports.mlb.study_config",
+    study = __import__("sports.mlb.config.study_config",
                        fromlist=["load_mlb_study"]).load_mlb_study()
     for tr, va in folds:
         assert len(tr) >= study.oof.min_training_rows

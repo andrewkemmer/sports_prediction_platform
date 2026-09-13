@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sports.nba.study_config import load_nba_study
-from sports.nba.training import (
+from sports.nba.config.study_config import load_nba_study
+from sports.nba.models.moneyline.training import (
     TrainFoldPreprocessor,
     fit_final_models,
     fit_platt,
@@ -24,7 +24,7 @@ from tests.nba_fixtures import make_schedule
 @pytest.fixture(scope="module")
 def decided_frame():
     sched = make_schedule(2015, 2)
-    from sports.nba.features import build_game_features
+    from sports.nba.features.build_frame import build_game_features
     return build_game_features(sched.dropna(subset=["home_score"]))
 
 
@@ -132,7 +132,7 @@ class TestPlatt:
         y = (rng.random(200) < p).astype(float)
         cal = fit_platt(p, y)
         assert cal["a"] is not None
-        from sports.nba.training import apply_platt
+        from sports.nba.models.moneyline.training import apply_platt
         q = apply_platt(p, cal)
         assert ((q > 0) & (q < 1)).all()
 
@@ -149,7 +149,7 @@ class TestFinalFitAndSlate:
 
     def test_slate_prediction_pipeline(self, decided_frame, study):
         sched = make_schedule(2015, 2)
-        from sports.nba.features import build_slate_features
+        from sports.nba.features.build_frame import build_slate_features
         slate = build_slate_features(sched)
         models, _ = fit_final_models(decided_frame, study)
         weights = {"xgboost": 0.25, "lightgbm": 0.25, "logistic": 0.2,
@@ -162,7 +162,7 @@ class TestFinalFitAndSlate:
     def test_predict_slate_moneyline_attaches_pick(self, decided_frame,
                                                    study):
         sched = make_schedule(2015, 2)
-        from sports.nba.features import build_slate_features
+        from sports.nba.features.build_frame import build_slate_features
         slate = build_slate_features(sched)
         out = predict_slate_moneyline(decided_frame, slate.head(5), study)
         assert "home_win_prob_model" in out.columns

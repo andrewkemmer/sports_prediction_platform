@@ -11,14 +11,14 @@ import pandas as pd
 import pytest
 
 from sports.nba.adapter import NBAAdapter
-from sports.nba.runner import (
+from sports.nba.run_production import (
     ENV_END_DATE,
     ENV_FULL_REPULL,
     ENV_START_DATE,
     NBARunnerError,
     run_nba_production,
 )
-from sports.nba.study_config import load_nba_study
+from sports.nba.config.study_config import load_nba_study
 from tests.nba_fixtures import make_player_cache, make_schedule
 
 FIXTURE = json.loads(
@@ -46,7 +46,7 @@ def relaxed_study():
 @pytest.fixture(autouse=True)
 def _relax_study_gate(monkeypatch):
     """Point every runner-path study load at the relaxed study."""
-    monkeypatch.setattr("sports.nba.runner.load_nba_study",
+    monkeypatch.setattr("sports.nba.run_production.load_nba_study",
                         _relaxed_study)
 
 
@@ -101,7 +101,7 @@ class TestAdapter:
         assert "nba_shap_game" not in exempt
 
     def test_feature_contract(self):
-        from sports.nba.feature_registry import MONEYLINE_CONTRACT_VERSION
+        from sports.nba.features.registry import MONEYLINE_CONTRACT_VERSION
 
         fc = NBAAdapter().feature_contract()
         assert fc.sport == "nba"
@@ -257,7 +257,7 @@ class TestRunnerEndToEnd:
             "keys"]
         # T3: the emitted feature metadata version is bound from the ACTIVE
         # registry/study moneyline contract, never a hardcoded literal.
-        from sports.nba.feature_registry import MONEYLINE_CONTRACT_VERSION
+        from sports.nba.features.registry import MONEYLINE_CONTRACT_VERSION
         assert fj["feature_set_version"] == MONEYLINE_CONTRACT_VERSION
 
         ph = pd.read_csv(sink / f"nba_predictions_history_{date_c}.csv")
@@ -331,7 +331,7 @@ class TestRunnerEndToEnd:
             return orig(*a, **kw)
 
         monkeypatch.setattr(
-            "sports.nba.runner.run_production_retention", spy)
+            "sports.nba.run_production.run_production_retention", spy)
         undecided_dates = pd.to_datetime(
             sched[sched["home_score"].isna()]["game_date"])
         run_nba_production(
@@ -354,7 +354,7 @@ class TestRunnerEndToEnd:
             raise AssertionError("retention must not run on failure")
 
         monkeypatch.setattr(
-            "sports.nba.runner.run_production_retention", spy)
+            "sports.nba.run_production.run_production_retention", spy)
         # break the writers via an invalid slate that trips the fixture gate
         monkeypatch.setattr(
             "sports.nba.artifacts.write_moneyline_json",
@@ -470,7 +470,7 @@ def test_model_monitor_features_metadata_is_canonical(tmp_path):
     cov=[]."""
     from core.contracts import FEATURE_SPEC_FIELDS
     from sports.nba.artifacts import write_model_monitor_json
-    from sports.nba.feature_registry import build_feature_contract
+    from sports.nba.features.registry import build_feature_contract
     meta = build_feature_contract().to_metadata_json("2026-09-01")
     path = tmp_path / "nba_model_monitor_20260901.json"
     record = write_model_monitor_json(path, "20260901", [], [], [], [], 0.5,

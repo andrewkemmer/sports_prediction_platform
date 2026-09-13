@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from core.contracts import validate_record
-from sports.mlb.run_engine import (
+from sports.mlb.models.market.run_engine import (
     RUN_LINE_GRID,
     RUN_LINE_GRID_FULL,
     TOTAL_LINE_GRID,

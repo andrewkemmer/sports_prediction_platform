@@ -26,9 +26,9 @@ from core.experiments.search_space import ModelScope
 def nba_adapters(study) -> dict[str, dict]:
     """NBA moneyline + market scope adapters on the real NBA store."""
     from core.folds import make_folds
-    from sports.nba.features import build_game_features, build_slate_features
+    from sports.nba.features.build_frame import build_game_features, build_slate_features
     from sports.nba.ingestion import load_schedule_cache
-    from sports.nba.study_config import load_nba_study
+    from sports.nba.config.study_config import load_nba_study
 
     study = study or load_nba_study()
     path = STORE / "nba" / "raw" / "schedule.parquet"

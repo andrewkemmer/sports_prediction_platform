@@ -101,12 +101,12 @@ class TestDistributionSemantics:
         """p_home_cover + p_push + p_away_cover = 1 per integer line;
         half-point lines carry zero push mass by construction."""
         import numpy as np
-        from sports.nfl.distributions import (
+        from sports.nfl.models.market.distributions import (
             game_distribution,
             margin_cdf_above,
             margin_pmf_at,
         )
-        from sports.nfl.study_config import load_nfl_study
+        from sports.nfl.config.study_config import load_nfl_study
         study = load_nfl_study()
         support = np.arange(-study.market.margin_pmf_max,
                             study.market.margin_pmf_max + 1)
@@ -121,13 +121,13 @@ class TestDistributionSemantics:
             label = str(L).replace(".", "_").replace("-", "m")
             # half stops have no push column — the PMF at L is 0
             pmf = __import__(
-                "sports.nfl.distributions", fromlist=["x"]
+                "sports.nfl.models.market.distributions", fromlist=["x"]
             ).discrete_normal_pmf(3.5, 13.0, support)
             assert margin_pmf_at(pmf, support, L) == 0.0
 
     def test_three_way_moneyline_sums_to_one(self):
-        from sports.nfl.distributions import game_distribution
-        from sports.nfl.study_config import load_nfl_study
+        from sports.nfl.models.market.distributions import game_distribution
+        from sports.nfl.config.study_config import load_nfl_study
         study = load_nfl_study()
         out = game_distribution(24.0, 20.5, 13.0, 9.5, study)
         total = (out["p_home_win_derived"] + out["p_tie"]

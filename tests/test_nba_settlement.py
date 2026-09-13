@@ -20,14 +20,14 @@ from core.contracts import (
     settle_total,
 )
 from sports.nba.adapter import NBAAdapter
-from sports.nba.distributions import (
+from sports.nba.models.market.distributions import (
     discrete_normal_pmf,
     game_distribution,
     margin_cdf_above,
     margin_pmf_at,
     total_probabilities,
 )
-from sports.nba.study_config import load_nba_study
+from sports.nba.config.study_config import load_nba_study
 
 
 class TestFullGameMoneyline:

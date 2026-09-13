@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sports.mlb.runner import (
+from sports.mlb.run_production import (
     ENV_END_DATE,
     ENV_FULL_REPULL,
     ENV_START_DATE,
@@ -89,7 +89,7 @@ def test_runconfig_training_window_independent_of_run_window():
     the study config — the runner never derives training dates from the env
     values."""
     from core.config import resolve_run_window
-    from sports.mlb.study_config import load_mlb_study
+    from sports.mlb.config.study_config import load_mlb_study
     study = load_mlb_study()
     w = resolve_run_window(
         start_date=VALID_ENV[ENV_START_DATE],
@@ -127,7 +127,7 @@ def test_study_yaml_exempt_family_never_allowlisted():
 
 
 def load_study_guarded():
-    from sports.mlb.study_config import load_mlb_study
+    from sports.mlb.config.study_config import load_mlb_study
     return load_mlb_study()
 
 
@@ -136,7 +136,7 @@ def load_study_guarded():
 # ---------------------------------------------------------------------------
 
 def test_todays_games_helper_never_fabricates(tmp_path):
-    from sports.mlb.runner import _todays_games_frame
+    from sports.mlb.run_production import _todays_games_frame
     slate = pd.DataFrame({"game_pk": [1], "game_date": ["2026-09-07"]})
     frame = _todays_games_frame(slate, {})
     # Fixture columns all present; model probability stays NA (no training
@@ -146,14 +146,14 @@ def test_todays_games_helper_never_fabricates(tmp_path):
 
 
 def test_empty_slate_yields_empty_typed_frame():
-    from sports.mlb.runner import _todays_games_frame
+    from sports.mlb.run_production import _todays_games_frame
     frame = _todays_games_frame(pd.DataFrame(), {})
     assert len(frame) == 0
     assert "game_id" in frame.columns
 
 
 def test_power_rankings_helper_on_empty_decided():
-    from sports.mlb.runner import _power_rankings_frame
+    from sports.mlb.run_production import _power_rankings_frame
     frame = _power_rankings_frame(pd.DataFrame())
     assert len(frame) == 0
     assert "elo" in frame.columns
@@ -166,8 +166,8 @@ def test_power_rankings_helper_on_empty_decided():
 def test_shap_count_rule_exactly_one_per_slate_game():
     """The SHAP contract: EXACTLY one shap_game file per undecided slate
     game — no fixed minimum (the old 'six files' rule is removed)."""
-    from sports.mlb.runner import _write_slate_shap
-    from sports.mlb.feature_registry import MONEYLINE_FEATURE_COLS
+    from sports.mlb.run_production import _write_slate_shap
+    from sports.mlb.features.registry import MONEYLINE_FEATURE_COLS
     rng = np.random.default_rng(3)
     n = 120
     decided = pd.DataFrame({
@@ -192,7 +192,7 @@ def test_shap_count_rule_exactly_one_per_slate_game():
 def test_imputation_is_train_only():
     """Apply-time imputation reuses TRAIN medians: an apply row with an
     extreme NaN pattern is filled from train statistics, not refit."""
-    from sports.mlb.training import _impute_train_median
+    from sports.mlb.models.moneyline.training import _impute_train_median
     rng = np.random.default_rng(5)
     X_tr = rng.normal(loc=10.0, scale=2.0, size=(80, 3))
     X_tr[:10, 1] = np.nan  # partial missingness in train
@@ -209,7 +209,7 @@ def test_all_nan_training_column_routed_explicitly():
     """A column entirely unavailable in training is routed as explicitly
     unavailable (documented 0.0 fallback for the linear members only) —
     it never fabricates a pseudo-statistic, and tree members keep NaN."""
-    from sports.mlb.training import _impute_train_median
+    from sports.mlb.models.moneyline.training import _impute_train_median
     rng = np.random.default_rng(6)
     X_tr = rng.normal(size=(60, 2))
     X_tr[:, 1] = np.nan
@@ -225,7 +225,7 @@ def test_all_nan_training_column_routed_explicitly():
 def test_features_metadata_marks_unavailable_columns():
     """features_metadata.warnings explicitly lists every entirely-
     unavailable feature — never a silent drop."""
-    from sports.mlb.runner import _features_metadata_payload
+    from sports.mlb.run_production import _features_metadata_payload
     decided = pd.DataFrame({
         "real_feature": [1.0, 2.0, 3.0],
         "ghost_feature": [np.nan, np.nan, np.nan],
@@ -243,7 +243,7 @@ def test_five_member_stack_all_execute():
     """The complete intended five-member moneyline stack (xgboost,
     lightgbm, logistic, randomforest, mlp) must all fit and predict —
     xgboost is no longer skippable-by-absence in the certified runtime."""
-    from sports.mlb.training import ENSEMBLE_WEIGHTS, _fit_member, \
+    from sports.mlb.models.moneyline.training import ENSEMBLE_WEIGHTS, _fit_member, \
         _member_predict
     rng = np.random.default_rng(9)
     X = rng.normal(size=(150, 4)); X[rng.random(X.shape) < 0.05] = np.nan
@@ -281,7 +281,7 @@ def test_rolling_brier_payload_known_value():
     """KNOWN-VALUE Brier: one day of p=[0.8, 0.6, 0.3] against actual
     outcomes [1, 0, 1] must give mean((p - y)^2) = 0.29667, i.e. a real float
     derived from predictions vs outcomes — never a placeholder."""
-    from sports.mlb.runner import _rolling_brier_payload
+    from sports.mlb.run_production import _rolling_brier_payload
     markets = _markets_frame(["2026-09-01"] * 3, [0.8, 0.6, 0.3],
                              [(5, 3), (2, 4), (7, 1)])
     payload = _rolling_brier_payload({"markets": markets})
@@ -301,7 +301,7 @@ def test_rolling_brier_payload_known_value():
 def test_rolling_brier_payload_multi_day_series_is_real():
     """Two days, three games: per-day means must be the true Brier values and
     the series must be date-sorted."""
-    from sports.mlb.runner import _rolling_brier_payload
+    from sports.mlb.run_production import _rolling_brier_payload
     markets = _markets_frame(["2026-09-01", "2026-09-01", "2026-09-02"],
                              [0.7, 0.4, 0.9],
                              [(3, 1), (0, 2), (6, 5)])
@@ -318,7 +318,7 @@ def test_rolling_brier_payload_multi_day_series_is_real():
 def test_rolling_brier_payload_excludes_unavailable_rows():
     """A game with no moneyline probability is EXCLUDED from the series, not
     fabricated as a 0.0/0.5 guess."""
-    from sports.mlb.runner import _rolling_brier_payload
+    from sports.mlb.run_production import _rolling_brier_payload
     markets = _markets_frame(["2026-09-01"] * 3, [0.8, np.nan, 0.2],
                              [(1, 0), (2, 1), (0, 3)])
     payload = _rolling_brier_payload({"markets": markets})
@@ -329,7 +329,7 @@ def test_rolling_brier_payload_excludes_unavailable_rows():
 
 def test_rolling_brier_payload_preserves_contract_keys_and_order():
     """The schema the fixture pins is unchanged: same 12 keys, same order."""
-    from sports.mlb.runner import _rolling_brier_payload
+    from sports.mlb.run_production import _rolling_brier_payload
     keys = _MLB_FIXTURE["artifacts"]["rolling_brier"]["keys"]
     payload = _rolling_brier_payload(
         {"markets": _markets_frame(["2026-09-01"], [0.5], [(1, 0)])})
@@ -340,7 +340,7 @@ def test_rolling_brier_payload_preserves_contract_keys_and_order():
 def test_rolling_brier_payload_empty_markets_is_contract_shaped():
     """With no decided rows the payload is empty but still contract-shaped;
     history_mean_brier is null only here (the one contract-nullable key)."""
-    from sports.mlb.runner import _rolling_brier_payload
+    from sports.mlb.run_production import _rolling_brier_payload
     keys = _MLB_FIXTURE["artifacts"]["rolling_brier"]["keys"]
     payload = _rolling_brier_payload({"markets": pd.DataFrame()})
     assert list(payload) == keys
@@ -358,8 +358,8 @@ def test_rolling_brier_uses_moneyline_semantics_not_the_totals_helper():
     the run engine's ``compute_rolling_totals_brier``, which scores the
     OVER/UNDER TOTALS market (``p_over_9_0`` vs ``total_runs >= 9.5``).
     Wiring that helper here would be a market-semantics regression."""
-    import sports.mlb.run_engine as run_engine
-    from sports.mlb.runner import _rolling_brier_payload
+    import sports.mlb.models.market.run_engine as run_engine
+    from sports.mlb.run_production import _rolling_brier_payload
 
     # A day where the two markets DISAGREE, so the returned value identifies
     # which semantics were used. Totals column is wrong on both games.

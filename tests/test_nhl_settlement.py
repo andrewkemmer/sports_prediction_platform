@@ -20,14 +20,14 @@ from core.contracts import (
     settle_total,
 )
 from sports.nhl.adapter import NHLAdapter
-from sports.nhl.distributions import (
+from sports.nhl.models.market.distributions import (
     discrete_normal_pmf,
     game_distribution,
     margin_cdf_above,
     margin_pmf_at,
     total_probabilities,
 )
-from sports.nhl.study_config import load_nhl_study
+from sports.nhl.config.study_config import load_nhl_study
 
 
 def _regulation() -> SettlementConfig:

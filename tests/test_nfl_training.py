@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sports.nfl.study_config import load_nfl_study
-from sports.nfl.training import (
+from sports.nfl.config.study_config import load_nfl_study
+from sports.nfl.models.moneyline.training import (
     TrainFoldPreprocessor,
     fit_final_models,
     fit_platt,
@@ -33,7 +33,7 @@ def test_study():
 def game_frame():
     sched = make_schedule(2019, 2)
     decided = sched[sched["home_score"].notna()].reset_index(drop=True)
-    from sports.nfl.features import build_game_features
+    from sports.nfl.features.build_frame import build_game_features
     df = build_game_features(decided, make_pbp(sched))
     return df.sort_values("gameday").reset_index(drop=True)
 
@@ -165,7 +165,7 @@ class TestPlatt:
         y = (rng.uniform(size=200) < p).astype(float)
         cal = fit_platt(p, y)
         assert cal["a"] is not None and cal["b"] is not None
-        out = __import__("sports.nfl.training", fromlist=["apply_platt"]) \
+        out = __import__("sports.nfl.models.moneyline.training", fromlist=["apply_platt"]) \
             .apply_platt(p, cal)
         assert np.isfinite(out).all()
 

@@ -16,7 +16,7 @@ from core.artifacts import (
 # ---------------------------------------------------------------------------
 # B-004: emission <-> allowlist parity (both directions, all four sports).
 # EMISSIONS is the audited inventory of DATED filename prefixes the runners
-# write to each sport's sink (evidence: sports/*/runner.py, mlb artifacts.py
+# write to each sport's sink (evidence: sports/*/run_production.py, mlb artifacts.py
 # ``sink / f"<prefix>_<date>..."`` call sites). Any new emitted family MUST
 # be added here AND to DEFAULT_ALLOWLISTED_FAMILIES in the same commit.
 # ---------------------------------------------------------------------------

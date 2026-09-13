@@ -86,10 +86,10 @@ def matrix_hash(df: pd.DataFrame, cols, id_series: pd.Series) -> str:
 
 
 def _mlb():
-    from sports.mlb.feature_registry import (MARKET_FEATURE_COLS,
+    from sports.mlb.features.registry import (MARKET_FEATURE_COLS,
                                              MONEYLINE_FEATURE_COLS,
                                              build_candidate_frame)
-    from sports.mlb.features import build_features
+    from sports.mlb.features.build_frame import build_features
     from sports.mlb.frames import get_decided_frame
 
     game_df, _ = build_features("store/mlb/raw/pitches.parquet",
@@ -105,11 +105,11 @@ def _mlb():
 
 
 def _nba():
-    from sports.nba.feature_registry import (MARKET_FEATURE_COLS,
+    from sports.nba.features.registry import (MARKET_FEATURE_COLS,
                                              MONEYLINE_FEATURE_COLS)
-    from sports.nba.features import build_game_features
+    from sports.nba.features.build_frame import build_game_features
     from sports.nba.ingestion import load_schedule_cache
-    from sports.nba.study_config import load_nba_study
+    from sports.nba.config.study_config import load_nba_study
 
     study = load_nba_study()
     sched = load_schedule_cache(Path("store/nba/raw/schedule.parquet"))
@@ -126,11 +126,11 @@ def _nba():
 
 
 def _nfl():
-    from sports.nfl.feature_registry import (MARKET_FEATURE_COLS,
+    from sports.nfl.features.registry import (MARKET_FEATURE_COLS,
                                              MONEYLINE_FEATURE_COLS)
-    from sports.nfl.features import build_game_features
+    from sports.nfl.features.build_frame import build_game_features
     from sports.nfl.ingestion import eligible_games, load_pbp, load_schedule
-    from sports.nfl.study_config import load_nfl_study
+    from sports.nfl.config.study_config import load_nfl_study
 
     study = load_nfl_study()
     cache = Path("store/nfl/raw")
@@ -160,11 +160,11 @@ def _nfl():
 
 
 def _nhl():
-    from sports.nhl.feature_registry import (MARKET_FEATURE_COLS,
+    from sports.nhl.features.registry import (MARKET_FEATURE_COLS,
                                              MONEYLINE_FEATURE_COLS)
-    from sports.nhl.features import build_game_features
+    from sports.nhl.features.build_frame import build_game_features
     from sports.nhl.ingestion import load_schedule_cache
-    from sports.nhl.study_config import load_nhl_study
+    from sports.nhl.config.study_config import load_nhl_study
 
     study = load_nhl_study()
     sched = load_schedule_cache(Path("store/nhl/raw/schedule.parquet"))

@@ -31,7 +31,7 @@ from core.contracts import (
     ParticipantBox,
 )
 from core.contracts import SettlementConfig
-from sports.nfl.feature_registry import build_feature_contract
+from sports.nfl.features.registry import build_feature_contract
 
 
 class NFLAdapter:

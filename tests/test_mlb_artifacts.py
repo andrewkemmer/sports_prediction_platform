@@ -27,7 +27,7 @@ from sports.mlb.artifacts import (
     persist_todays_games,
     write_all_artifacts,
 )
-from sports.mlb.run_engine import (
+from sports.mlb.models.market.run_engine import (
     RUN_LINE_GRID,
     RUN_LINE_GRID_FULL,
     TOTAL_LINE_GRID,

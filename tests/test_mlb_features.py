@@ -13,13 +13,13 @@ import duckdb
 import pandas as pd
 import pytest
 
-from sports.mlb.features import build_features
+from sports.mlb.features.build_frame import build_features
 from sports.mlb.frames import (
     compute_elo_entries,
     compute_season_records,
     get_decided_frame,
 )
-from sports.mlb.feature_registry import (
+from sports.mlb.features.registry import (
     MARKET_FEATURE_COLS,
     MONEYLINE_FEATURE_COLS,
     build_candidate_frame,
@@ -169,7 +169,7 @@ def test_duckdb_connect_schema_robust(tmp_path):
 
 def test_duckdb_spill_configured(tmp_path):
     """The connection is tuned for bounded RAM (temp spill on)."""
-    from sports.mlb.features import _connect
+    from sports.mlb.features.build_frame import _connect
     cache = tmp_path / "p.parquet"
     make_statcast_games(D0, 2, games_per_day=2, seed=5,
                         include_slate_day=False).to_parquet(cache)

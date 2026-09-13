@@ -31,7 +31,7 @@ from core.contracts import (
     ParticipantBox,
 )
 from core.contracts import SettlementConfig
-from sports.nba.feature_registry import build_feature_contract
+from sports.nba.features.registry import build_feature_contract
 
 
 class NBAAdapter:

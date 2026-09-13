@@ -12,7 +12,7 @@ from datetime import date, timedelta
 import pandas as pd
 import pytest
 
-from sports.mlb.catalog import PITCH_IDENTITY_COLS, STATCAST_COLS
+from sports.mlb.features.raw.catalog import PITCH_IDENTITY_COLS, STATCAST_COLS
 from sports.mlb.ingestion import (
     EXTERNAL_SOURCES,
     SOURCE_STATCAST,

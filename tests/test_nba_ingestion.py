@@ -10,7 +10,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from sports.nba.catalog import normalize_season_code
+from sports.nba.features.raw.catalog import normalize_season_code
 from sports.nba.ingestion import (
     EXTERNAL_SOURCES,
     SOURCE_BOXSCORE,
@@ -69,7 +69,7 @@ class TestCatalog:
         assert math.isnan(normalize_season_code("garbage"))
 
     def test_game_type_from_id(self):
-        from sports.nba.catalog import game_type_from_id
+        from sports.nba.features.raw.catalog import game_type_from_id
         assert game_type_from_id("0022300061") == 2   # regular season
         assert game_type_from_id("0012300001") == 1   # preseason
         assert game_type_from_id("0042300401") == 4   # playoffs

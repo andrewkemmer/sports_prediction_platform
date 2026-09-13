@@ -11,14 +11,14 @@ import pandas as pd
 import pytest
 
 from sports.nhl.adapter import NHLAdapter
-from sports.nhl.runner import (
+from sports.nhl.run_production import (
     ENV_END_DATE,
     ENV_FULL_REPULL,
     ENV_START_DATE,
     NHLRunnerError,
     run_nhl_production,
 )
-from sports.nhl.study_config import load_nhl_study
+from sports.nhl.config.study_config import load_nhl_study
 from tests.nhl_fixtures import make_goalie_cache, make_schedule
 
 FIXTURE = json.loads(
@@ -46,7 +46,7 @@ def relaxed_study():
 @pytest.fixture(autouse=True)
 def _relax_study_gate(monkeypatch):
     """Point every runner-path study load at the relaxed study."""
-    monkeypatch.setattr("sports.nhl.runner.load_nhl_study",
+    monkeypatch.setattr("sports.nhl.run_production.load_nhl_study",
                         _relaxed_study)
 
 
@@ -260,7 +260,7 @@ class TestRunnerEndToEnd:
             "keys"]
         # T3: the emitted feature metadata version is bound from the ACTIVE
         # registry/study moneyline contract, never a hardcoded literal.
-        from sports.nhl.feature_registry import MONEYLINE_CONTRACT_VERSION
+        from sports.nhl.features.registry import MONEYLINE_CONTRACT_VERSION
         assert fj["feature_set_version"] == MONEYLINE_CONTRACT_VERSION
 
         ph = pd.read_csv(sink / f"nhl_predictions_history_{date_c}.csv")
@@ -335,7 +335,7 @@ class TestRunnerEndToEnd:
             return orig(*a, **kw)
 
         monkeypatch.setattr(
-            "sports.nhl.runner.run_production_retention", spy)
+            "sports.nhl.run_production.run_production_retention", spy)
         undecided_dates = pd.to_datetime(
             sched[sched["home_score"].isna()]["game_date"])
         run_nhl_production(
@@ -359,7 +359,7 @@ class TestRunnerEndToEnd:
             raise AssertionError("retention must not run on failure")
 
         monkeypatch.setattr(
-            "sports.nhl.runner.run_production_retention", spy)
+            "sports.nhl.run_production.run_production_retention", spy)
         # break the writers via an invalid slate that trips the fixture gate
         monkeypatch.setattr(
             "sports.nhl.artifacts.write_moneyline_json",
@@ -476,7 +476,7 @@ def test_model_monitor_features_metadata_is_canonical(tmp_path):
     cov=[]."""
     from core.contracts import FEATURE_SPEC_FIELDS
     from sports.nhl.artifacts import write_model_monitor_json
-    from sports.nhl.feature_registry import build_feature_contract
+    from sports.nhl.features.registry import build_feature_contract
     meta = build_feature_contract().to_metadata_json("2026-09-01")
     path = tmp_path / "nhl_model_monitor_20260901.json"
     record = write_model_monitor_json(path, "20260901", [], [], [], [], 0.5,

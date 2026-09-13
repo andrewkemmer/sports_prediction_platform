@@ -26,10 +26,10 @@ from core.experiments.search_space import ModelScope
 def nfl_adapters(study) -> dict[str, dict]:
     """NFL moneyline + market scope adapters on the real NFL store."""
     from core.folds import make_folds
-    from sports.nfl.features import build_game_features, build_slate_features
+    from sports.nfl.features.build_frame import build_game_features, build_slate_features
     from sports.nfl.ingestion import eligible_games, load_pbp
-    from sports.nfl.runner import VENUE_CSV
-    from sports.nfl.study_config import load_nfl_study
+    from sports.nfl.run_production import VENUE_CSV
+    from sports.nfl.config.study_config import load_nfl_study
 
     study = study or load_nfl_study()
     cache = STORE / "nfl" / "raw"

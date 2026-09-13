@@ -62,10 +62,10 @@ def _sport_contracts(module_name: str):
 
 
 SPORT_MODULES = {
-    "mlb": "sports.mlb.feature_registry",
-    "nfl": "sports.nfl.feature_registry",
-    "nba": "sports.nba.feature_registry",
-    "nhl": "sports.nhl.feature_registry",
+    "mlb": "sports.mlb.features.registry",
+    "nfl": "sports.nfl.features.registry",
+    "nba": "sports.nba.features.registry",
+    "nhl": "sports.nhl.features.registry",
 }
 
 
@@ -73,10 +73,10 @@ def _study_modules():
     import importlib
 
     return {
-        "mlb": importlib.import_module("sports.mlb.study_config"),
-        "nfl": importlib.import_module("sports.nfl.study_config"),
-        "nba": importlib.import_module("sports.nba.study_config"),
-        "nhl": importlib.import_module("sports.nhl.study_config"),
+        "mlb": importlib.import_module("sports.mlb.config.study_config"),
+        "nfl": importlib.import_module("sports.nfl.config.study_config"),
+        "nba": importlib.import_module("sports.nba.config.study_config"),
+        "nhl": importlib.import_module("sports.nhl.config.study_config"),
     }
 
 
@@ -166,7 +166,7 @@ def test_scope_contracts_independent_and_versioned(sport: str) -> None:
         # the MLB production contract location — AND carried by MLBStudy
         # (Phase 7.5b: MLBStudy binds moneyline/market feature cols and
         # versions like the other sports).
-        from sports.mlb import feature_registry as mlb_registry
+        from sports.mlb.features import registry as mlb_registry
 
         ml_carried = mlb_registry.MONEYLINE_CONTRACT_VERSION
         mk_carried = mlb_registry.MARKET_CONTRACT_VERSION
@@ -181,7 +181,7 @@ def test_scope_contracts_independent_and_versioned(sport: str) -> None:
             "nhl": "load_nhl_study",
         }[sport]
         loader = getattr(importlib.import_module(
-            f"sports.{sport}.study_config"), loader_name)
+            f"sports.{sport}.config.study_config"), loader_name)
         st = loader()
         ml_carried = st.moneyline_contract_version
         mk_carried = st.market_contract_version
@@ -226,7 +226,7 @@ def test_registry_owns_declared_contracts(sport: str) -> None:
     import importlib
     from pathlib import Path
 
-    mod = importlib.import_module(f"sports.{sport}.feature_registry")
+    mod = importlib.import_module(f"sports.{sport}.features.registry")
     ml_cols = getattr(mod, "MONEYLINE_FEATURE_COLS")
     mk_cols = getattr(mod, "MARKET_FEATURE_COLS")
     ml_ver = getattr(mod, "MONEYLINE_CONTRACT_VERSION")
@@ -240,12 +240,12 @@ def test_registry_owns_declared_contracts(sport: str) -> None:
 
     # Registry source: no study_config import (Task 1.4).
     reg_path = Path(importlib.import_module(
-        f"sports.{sport}.feature_registry").__file__)
+        f"sports.{sport}.features.registry").__file__)
     tree = ast.parse(reg_path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             assert not node.module.startswith(
-                f"sports.{sport}.study_config"), (
+                f"sports.{sport}.config.study_config"), (
                 f"{sport}: registry imports study_config (ownership inverted)")
 
 
@@ -257,7 +257,7 @@ def test_study_config_imports_and_binds_registry_contracts(sport: str) -> None:
     import importlib
     from pathlib import Path
 
-    mod = importlib.import_module(f"sports.{sport}.study_config")
+    mod = importlib.import_module(f"sports.{sport}.config.study_config")
 
     # re-exports present
     for sym in ("MONEYLINE_FEATURE_COLS", "MARKET_FEATURE_COLS",
@@ -265,7 +265,7 @@ def test_study_config_imports_and_binds_registry_contracts(sport: str) -> None:
         assert hasattr(mod, sym), f"{sport}: study_config missing re-export {sym}"
 
     # registry identity (import, not re-declaration)
-    reg = importlib.import_module(f"sports.{sport}.feature_registry")
+    reg = importlib.import_module(f"sports.{sport}.features.registry")
     assert mod.MONEYLINE_FEATURE_COLS is reg.MONEYLINE_FEATURE_COLS, (
         f"{sport}: study_config MONEYLINE list is not the registry object")
     assert mod.MARKET_FEATURE_COLS is reg.MARKET_FEATURE_COLS, (
@@ -312,7 +312,7 @@ def _registry_metadata(sport: str):
     """
     import importlib
 
-    mod = importlib.import_module(f"sports.{sport}.feature_registry")
+    mod = importlib.import_module(f"sports.{sport}.features.registry")
     if sport == "mlb":
         return {e.name for e in mod.registry_entries()}
     return frozenset(mod._SPEC_DEFS)
@@ -323,7 +323,7 @@ def test_declared_tuples_have_registry_metadata(sport: str) -> None:
     """Every column of BOTH declared contract tuples has registry metadata."""
     import importlib
 
-    mod = importlib.import_module(f"sports.{sport}.feature_registry")
+    mod = importlib.import_module(f"sports.{sport}.features.registry")
     metadata = _registry_metadata(sport)
     validate_columns_have_metadata(
         sport, "moneyline", mod.MONEYLINE_FEATURE_COLS, metadata)
@@ -337,7 +337,7 @@ def test_registry_metadata_is_reachable_from_declared_tuples(
     """No orphan metadata: every registry entry is claimed by a tuple."""
     import importlib
 
-    mod = importlib.import_module(f"sports.{sport}.feature_registry")
+    mod = importlib.import_module(f"sports.{sport}.features.registry")
     declared = set(mod.MONEYLINE_FEATURE_COLS) | set(mod.MARKET_FEATURE_COLS)
     validate_metadata_is_reachable(sport, _registry_metadata(sport), declared)
 
@@ -345,7 +345,7 @@ def test_registry_metadata_is_reachable_from_declared_tuples(
 def test_mlb_market_only_entries_are_market_not_moneyline() -> None:
     """The three run-engine-only diffs are marked market, stay OUT of the
     moneyline view, and do not widen it from 64 to 67."""
-    from sports.mlb import feature_registry as reg
+    from sports.mlb.features import registry as reg
 
     entries = {e.name: e for e in reg.registry_entries()}
     for name in ("sp_k9_diff", "sp_k9_5g_diff", "sp_xwoba_diff"):
@@ -369,11 +369,11 @@ def test_feature_contract_binds_active_moneyline_version(sport: str) -> None:
     """The builder honors the study-carried active moneyline version."""
     import importlib
 
-    reg = importlib.import_module(f"sports.{sport}.feature_registry")
+    reg = importlib.import_module(f"sports.{sport}.features.registry")
     loader = {"mlb": "load_mlb_study", "nfl": "load_nfl_study",
               "nba": "load_nba_study", "nhl": "load_nhl_study"}[sport]
     study = getattr(importlib.import_module(
-        f"sports.{sport}.study_config"), loader)()
+        f"sports.{sport}.config.study_config"), loader)()
     contract = reg.build_feature_contract(study.moneyline_contract_version)
     assert contract.version == study.moneyline_contract_version
     assert contract.version == reg.MONEYLINE_CONTRACT_VERSION

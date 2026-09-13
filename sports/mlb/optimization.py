@@ -46,7 +46,7 @@ def mlb_adapters(study=None) -> dict[str, dict]:
       decided rows only — never attached to slate rows).
     """
     from core.folds import walk_forward_splits
-    from sports.mlb.feature_registry import (
+    from sports.mlb.features.registry import (
         MARKET_FEATURE_COLS,
         MONEYLINE_FEATURE_COLS,
         build_candidate_frame,
@@ -54,7 +54,7 @@ def mlb_adapters(study=None) -> dict[str, dict]:
         ensure_feature_columns,
     )
     from sports.mlb.frames import enrich_elo_and_records, get_decided_frame
-    from sports.mlb.study_config import load_mlb_study
+    from sports.mlb.config.study_config import load_mlb_study
 
     study = study or load_mlb_study()
     cache = STORE / "mlb" / "raw" / "pitches.parquet"
@@ -107,7 +107,7 @@ def mlb_adapters(study=None) -> dict[str, dict]:
                                                "away_team")})
         # Pre-game rows: PIT-carried state only (the production
         # _build_slate -> observed-filter -> derive_diff_features path,
-        # runner.py line-for-line). Outcome columns are dropped — a slate
+        # run_production.py line-for-line). Outcome columns are dropped — a slate
         # frame never carries a game result. Both frozen views' columns
         # are then guaranteed present (missing -> NaN), the production
         # ensure_feature_columns contract: unavailable observations ship
@@ -187,7 +187,7 @@ def _mlb_feature_frames(cache: Path):
     so both scopes bind one build per process."""
     key = str(cache)
     if key not in _MLB_FRAME_CACHE:
-        from sports.mlb.features import build_features
+        from sports.mlb.features.build_frame import build_features
 
         _MLB_FRAME_CACHE[key] = build_features(cache,
                                                output_dir=cache.parent)

@@ -7,13 +7,13 @@ import pandas as pd
 import pytest
 
 from core.folds import fold_summary, fold_table, make_folds
-from sports.nfl.features import (
+from sports.nfl.features.build_frame import (
     build_game_features,
     build_slate_features,
     feature_coverage_report,
     team_events,
 )
-from sports.nfl.study_config import MONEYLINE_FEATURE_COLS, load_nfl_study
+from sports.nfl.config.study_config import MONEYLINE_FEATURE_COLS, load_nfl_study
 from tests.nfl_fixtures import make_pbp, make_schedule
 
 
@@ -70,7 +70,7 @@ class TestPointInTime:
         ev["net_from_team"] = ev["for"] - ev["against"]
         ev["team_win"] = (ev["for"] > ev["against"]).astype(float)
         study = load_nfl_study()
-        from sports.nfl.features import team_stats_ladder
+        from sports.nfl.features.build_frame import team_stats_ladder
         with pytest.raises(AssertionError):
             team_stats_ladder(
                 ev, None, form_window=study.form_window,
@@ -120,7 +120,7 @@ class TestCoverage:
         decided, pbp = decided_and_pbp
         study = load_nfl_study()
         df = build_game_features(decided, pbp)
-        from sports.nfl.feature_registry import (
+        from sports.nfl.features.registry import (
             unavailable_columns,
             unavailable_warnings,
         )

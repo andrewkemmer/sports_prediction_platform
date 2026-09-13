@@ -33,7 +33,7 @@ from core.contracts import (
     ParticipantBox,
 )
 from core.contracts import SettlementConfig
-from sports.nhl.feature_registry import build_feature_contract
+from sports.nhl.features.registry import build_feature_contract
 
 
 class NHLAdapter:

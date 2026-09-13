@@ -18,11 +18,11 @@ from sports.nfl.artifacts import (
     write_predictions_history_csv,
     write_power_rankings_csv,
 )
-from sports.nfl.runner import (
+from sports.nfl.run_production import (
     FORBIDDEN_ENV_VARS,
     run_nfl_production,
 )
-from sports.nfl.study_config import load_nfl_study
+from sports.nfl.config.study_config import load_nfl_study
 from tests.nfl_fixtures import make_schedule
 
 
@@ -345,7 +345,7 @@ def test_model_monitor_features_metadata_is_canonical(tmp_path):
     cov=[]."""
     from core.contracts import FEATURE_SPEC_FIELDS
     from sports.nfl.artifacts import write_model_monitor_json
-    from sports.nfl.feature_registry import build_feature_contract
+    from sports.nfl.features.registry import build_feature_contract
     meta = build_feature_contract().to_metadata_json("2026-09-01")
     path = tmp_path / "nfl_model_monitor_20260901.json"
     record = write_model_monitor_json(path, "20260901", [], [], [], [], 0.5,
