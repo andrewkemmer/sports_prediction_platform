@@ -27,3 +27,6 @@ venv/
 # Raw data caches (DuckDB/Parquet stores) — never committed
 store/
 data_delivery/
+
+# Agent session scratch (local logs only) — never committed
+.freebuff/
