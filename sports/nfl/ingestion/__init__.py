@@ -22,12 +22,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 
 from core.config import DataSourcesError, load_data_sources
 from sports.nfl.features.raw.catalog import (
+    START_COMPOSITION_REQUIRED,
     KEEP_GAME_TYPES,
     PBP_COLS,
     PLAYER_STATS_COLS,
@@ -141,6 +143,55 @@ def _default_load_teams():
 # ---------------------------------------------------------------------------
 # Normalization
 # ---------------------------------------------------------------------------
+
+
+def compose_nfl_start_utc(schedule: pd.DataFrame) -> pd.Series:
+    """Compose the NFL start instant ``start_time_utc`` (r9a — the Phase
+    7.6 start-timestamp normalization item).
+
+    nflverse publishes ``gameday`` (ET calendar date) and ``gametime``
+    (ET wall clock, often empty for far-future weeks). The composition is
+    ET-locale correct per date (``America/New_York`` via zoneinfo,
+    DST-aware) and UTC-normalized. It FAILS CLOSED per row: a missing,
+    empty, unparseable, DST-ambiguous, or nonexistent input yields NaN —
+    never a fabricated or guessed instant. The §7.1 gates reject any
+    SERVED row whose start is unresolvable, so NaN here is loud
+    downstream by design.
+
+    Deterministic and idempotent: the same gameday+gametime always
+    composes the same instant (no wall clock anywhere), so recomposing
+    over cached frames is safe and heals pre-r9 caches.
+
+    Returns a ``datetime64[ns, UTC]`` Series aligned to ``schedule``.
+    """
+    for col in START_COMPOSITION_REQUIRED:
+        if col not in schedule.columns:
+            raise NFLIngestionError(
+                f"schedules payload lacks {col!r} — cannot compose "
+                "start_time_utc (§7.1 fails CLOSED)",
+                source=SOURCE_SCHEDULES,
+                params={"missing_column": col},
+            )
+    et = ZoneInfo("America/New_York")
+    dates = pd.to_datetime(schedule["gameday"], errors="coerce")
+    times = schedule["gametime"].astype("string").str.strip()
+    times = times.replace("", pd.NA)
+    tparse = pd.to_datetime(times, format="%H:%M", errors="coerce")
+    ok = dates.notna() & tparse.notna()
+    out = pd.Series(pd.NaT, index=schedule.index,
+                    dtype="datetime64[ns, UTC]")
+    idx = ok[ok].index
+    if len(idx):
+        composed = pd.to_datetime(
+            dates.loc[idx].dt.strftime("%Y-%m-%d") + " "
+            + tparse.loc[idx].dt.strftime("%H:%M"),
+            format="%Y-%m-%d %H:%M",
+        )
+        # DST-safe localization: ambiguous/nonexistent ET timestamps
+        # become NaT (fail closed) instead of a wrong instant.
+        out.loc[idx] = composed.dt.tz_localize(
+            et, ambiguous="NaT", nonexistent="NaT").dt.tz_convert("UTC")
+    return out
 
 
 def eligible_games(schedule: pd.DataFrame, oof_first_season: int,
@@ -306,8 +357,15 @@ def load_schedule(seasons: list[int], cache_dir: str | Path,
             f"{seasons}",
             source=SOURCE_SCHEDULES, params={"seasons": list(seasons)})
     combined = pd.concat(frames, ignore_index=True)
-    return combined.drop_duplicates(subset=["game_id"], keep="last") \
-        .reset_index(drop=True) if "game_id" in combined.columns else combined
+    if "game_id" in combined.columns:
+        combined = combined.drop_duplicates(subset=["game_id"],
+                                            keep="last") \
+            .reset_index(drop=True)
+    # r9a: the derived start instant is composed over EVERY load (fresh
+    # pulls and cached frames alike) — deterministic, so cached frames
+    # from before r9a heal transparently.
+    combined["start_time_utc"] = compose_nfl_start_utc(combined)
+    return combined
 
 
 def load_pbp(seasons: list[int], cache_dir: str | Path, *,

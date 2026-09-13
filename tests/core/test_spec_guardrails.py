@@ -449,11 +449,14 @@ def test_no_one_off_phase75_tests():
 
 def test_no_bare_feature_contract_usage_in_production_modules():
     forbidden = {"FEATURE_COLS", "FEATURE_COLUMNS"}
-    #: The ONLY tolerated declaration-site symbol is the legacy ``COLS``
-    #: alias (documented frozen-view bindings in adapters/sports). The
-    #: ``COLUMNS`` alias was RETIRED by Phase 7.5e-B (B-010a) and has no
-    #: exemption anywhere.
-    decl_tolerated = {"FEATURE_COLS"}
+    #: 7.6d (r9): the name-discipline is now FULLY EFFECTIVE — both the
+    #: retired ``FEATURE_COLUMNS`` alias and the legacy ``FEATURE_COLS``
+    #: frozen-view alias are banned without exemption anywhere in
+    #: production (core/ + sports/). The declaration-site tolerance was
+    #: removed after a repo sweep showed zero bare usage; §11's
+    #: independent moneyline/market contracts are the only sanctioned
+    #: contract surfaces (MONEYLINE_FEATURE_COLS / MARKET_FEATURE_COLS,
+    #: pinned by their own guardrails).
     offenders: list[str] = []
     for path in _py_files("core", "sports"):
         try:
@@ -467,44 +470,17 @@ def test_no_bare_feature_contract_usage_in_production_modules():
                     if alias.name in forbidden:
                         offenders.append(
                             f"{path.relative_to(REPO_ROOT)}:import:{alias.name}")
-            # consuming a bare name at module scope of a *definition* site is
-            # tolerated only for the legacy ``FEATURE_COLS`` alias in the
-            # declaring modules (feature_registry / study_config / adapters).
+            # any bare-name consumption anywhere (declaration, alias,
+            # re-export, or use) — no tolerated sites remain (7.6d)
             if isinstance(node, ast.Name) and node.id in forbidden:
-                decl_sites = ("feature_registry.py", "study_config.py",
-                              "adapters.py", "sports.py")
-                if (node.id not in decl_tolerated
-                        or path.name not in decl_sites):
-                    offenders.append(
-                        f"{path.relative_to(REPO_ROOT)}:name:{node.id}")
-    # Definition-site usage inside adapters/sports is the documented frozen
-    # view binding (Phase 7.5 contracts) and is tolerated ONLY for the legacy
-    # ``FEATURE_COLS`` alias. Same-sport provenance re-exports (a sport's
-    # feature_registry importing its own study_config view) are legitimate;
-    # cross-module bare imports are covered by B-008's dedicated xfail. The
-    # retired ``FEATURE_COLUMNS`` alias is enforced with NO exemption at all:
-    # any declaration, import, alias, re-export or bare-name consumption of it
-    # fails here, in whichever production module it appears.
-    hard = [
-        o for o in offenders
-        if ":name:FEATURE_COLUMNS" in o
-        or (
-            ":import:" in o and "adapters.py" not in o
-            and not (
-                "feature_registry.py" in o
-                # same-sport provenance re-export: nfl registry <- nfl cfg
-                and _same_sport_import(o)
-            )
-        )
-    ]
-    assert not hard, f"bare contract symbols consumed outside declaring modules: {hard}"
-
-
-def _same_sport_import(offender: str) -> bool:
-    """True when a feature_registry re-imports its OWN sport's config view."""
-    path_part = offender.split(":import:")[0]
-    sport_of_path = path_part.split("/")[1] if path_part.startswith("sports/") else None
-    return sport_of_path is not None and "sports/" in path_part
+                offenders.append(
+                    f"{path.relative_to(REPO_ROOT)}:name:{node.id}")
+    # r9 (7.6d): the ``hard`` filter no longer discards ``:name:``
+    # offenders — every bare declaration/consumption of either alias in
+    # a production module is a guardrail failure, closing the 7.5e-B
+    # scope exclusion recorded under B-010a.
+    assert not offenders, (
+        f"bare contract symbols consumed in production modules: {offenders}")
 
 
 def test_no_bare_feature_contract_import_by_adapters():
@@ -1191,9 +1167,9 @@ def test_slate_window_anchors_are_window_derived_per_sport():
     its slate-gate anchor from its SERVING WINDOW via ``window_anchor`` —
     one argument, an attribute of the window object, never a literal date
     and never wall clock — and passes an explicit ``resolution=`` /
-    ``start_col=`` matched to the sport's start data (mlb/nhl/nba instant
-    via start_time_utc since the Phase 7.6-B rebinding; nfl date via
-    gameday until its start-timestamp construction lands).
+    ``start_col=`` matched to the sport's start data (all four instant
+    via start_time_utc since r9a: MLB/NHL/NBA source-populated; NFL
+    derived at ingestion by compose_nfl_start_utc from gameday+gametime).
 
     AST-pinned: the ``window_anchor`` argument must be an attribute access
     on the window object (``window.start_date`` / ``pred_window

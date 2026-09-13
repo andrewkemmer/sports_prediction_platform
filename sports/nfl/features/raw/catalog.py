@@ -18,6 +18,19 @@ SCHEDULE_COLS = [
     "home_qb_id", "away_qb_id", "home_qb_name", "away_qb_name",
 ]
 
+#: Derived start instant: ``start_time_utc`` is NOT an nflverse column —
+#: it is composed at ingestion from ``gameday`` (ET calendar date) +
+#: ``gametime`` (ET wall clock) via :func:`compose_nfl_start_utc` and
+#: fails closed on missing/invalid inputs (no fabricated instants, ever).
+#: Declared here so the derived field is a documented catalog member.
+DERIVED_SCHEDULE_COLS = ["start_time_utc"]
+
+#: Columns REQUIRED to compose the start instant. ``gametime`` is often
+#: absent for far-future weeks; composition is applied per row and rows
+#: without a reliable instant carry a NaN ``start_time_utc`` — the §7.1
+#: gates fail closed on any served row lacking one.
+START_COMPOSITION_REQUIRED = ("gameday", "gametime")
+
 #: Regular season only — no pre/post season in the decided universe.
 KEEP_GAME_TYPES = {"REG"}
 

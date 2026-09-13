@@ -290,12 +290,15 @@ def run_nfl_production(
         # NOT §7.1 PIT evidence.
         # Deterministic serving-window-derived anchor (never wall clock):
         # the instant the run window opens (window.start_date).
-        # Date-resolution comparison: NFL starts are date-granularity
-        # today (instant starts = 7.6 start-timestamp normalization).
+        # Instant-resolution comparison (r9a — Phase 7.6 start-timestamp
+        # normalization CLOSED): start_time_utc is composed at ingestion
+        # from gameday+gametime (ET, DST-correct, fail-closed), so NFL
+        # compares at the same instant granularity as the other sports.
         slate_report = validate_slate_window(
             slate,
             anchor_utc=window_anchor(window.start_date.replace("-", "")),
-            start_col="gameday", resolution="date", label="nfl slate")
+            start_col="start_time_utc", resolution="instant",
+            label="nfl slate")
         if not slate_report.ok:
             raise NFLRunnerError(
                 f"slate window gate failed: {slate_report.violations[:3]}")
@@ -307,7 +310,7 @@ def run_nfl_production(
         pit_report = per_field_gate(
             slate,
             sport="nfl",
-            start_col="gameday",
+            start_col="start_time_utc",
             features=_AVAILABILITY_FEATURES,
             buffer_minutes=study.prediction_cutoff_buffer_minutes,
             label="nfl availability")

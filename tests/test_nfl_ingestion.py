@@ -15,6 +15,7 @@ from sports.nfl.ingestion import (
     SOURCE_SCHEDULES,
     SOURCE_TEAMS,
     NFLIngestionError,
+    compose_nfl_start_utc,
     eligible_games,
     load_pbp,
     load_player_stats,
@@ -385,3 +386,60 @@ class TestNflverseAdapterIntegrationSmoke:
         with pytest.raises(NFLIngestionError, match="REQUIRED"):
             load_team_names(tmp_path)
         assert not (tmp_path / "teams.parquet").exists()
+
+
+class TestStartInstantComposition:
+    """r9a — the derived ``start_time_utc`` (Phase 7.6 start-timestamp
+    normalization, closed): gameday (ET date) + gametime (ET wall clock)
+    composed into a DST-correct UTC instant, failing CLOSED on anything
+    unreliable. The composition is deterministic, so cached pre-r9a
+    schedules heal on the next load."""
+
+    def test_composes_et_instants_dst_correct(self):
+        df = pd.DataFrame({
+            "gameday": ["2026-09-13", "2026-09-13", "2026-11-01",
+                        "2026-11-01"],
+            "gametime": ["13:00", "20:20", "01:30", "05:00"],
+        })
+        s = compose_nfl_start_utc(df)
+        # September = EDT (UTC-4); 20:20 ET crosses to the next UTC day.
+        assert s.iloc[0] == pd.Timestamp("2026-09-13T17:00:00Z")
+        assert s.iloc[1] == pd.Timestamp("2026-09-14T00:20:00Z")
+        # November 1, 2026 = fall-back day: 01:30 ET is AMBIGUOUS and
+        # must fail closed, not silently pick an offset.
+        assert pd.isna(s.iloc[2])
+        # 05:00 ET is unambiguous EST (UTC-5).
+        assert s.iloc[3] == pd.Timestamp("2026-11-01T10:00:00Z")
+
+    def test_fail_closed_on_missing_or_invalid(self):
+        df = pd.DataFrame({
+            "gameday": ["2026-09-13", "2026-09-13", "not-a-date",
+                        "2026-03-08"],
+            "gametime": ["", None, "13:00", "02:30"],
+        })
+        s = compose_nfl_start_utc(df)
+        # empty gametime, missing gametime, bad date: all NaN (no
+        # fabricated instants)
+        assert s.isna().tolist()[:3] == [True, True, True]
+        # 02:30 on the spring-forward day is NONEXISTENT in ET -> NaN
+        assert s.isna().iloc[3]
+
+    def test_missing_required_column_fails_loud(self):
+        with pytest.raises(NFLIngestionError, match="gametime"):
+            compose_nfl_start_utc(pd.DataFrame({"gameday": ["2026-09-13"]}))
+
+    def test_load_schedule_emits_start_time_utc(self, tmp_path):
+        schedule = make_schedule()
+        assert "gametime" in schedule.columns
+        out = load_schedule([2019, 2020], tmp_path,
+                            load=lambda seasons: schedule.copy())
+        assert "start_time_utc" in out.columns
+        # every fixture row has a reliable gameday+gametime -> every
+        # instant composes
+        assert out["start_time_utc"].notna().all()
+        assert str(out["start_time_utc"].dtype) == "datetime64[ns, UTC]"
+        # deterministic: a second load from CACHE composes identical
+        # instants (cached frames are recomposed, healing pre-r9a caches)
+        out2 = load_schedule([2019, 2020], tmp_path,
+                             load=lambda seasons: schedule.copy())
+        assert out2["start_time_utc"].equals(out["start_time_utc"])

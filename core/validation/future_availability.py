@@ -30,31 +30,27 @@ from core.study.date_resolution import parse_compact_date
 BUFFER_MINUTES = {"mlb": 60, "nhl": 60, "nfl": 90, "nba": 90}
 
 #: Start-timestamp resolution per sport's start column (B-001 WS4):
-#: MLB carries instant UTC starts ("start_time_utc"); Phase 7.6-B (7.6c,
-#: dashboard/data-delivery) rebound NHL and NBA to their ALREADY-POPULATED
-#: true UTC start instants (ingestion maps startTimeUTC / gameDateTimeUTC
-#: into ``start_time_utc``), so their future-start check compares at
-#: instant granularity with the anchor unchanged. The NFL schedule still
-#: carries only ``gameday`` (date) plus an ET wall-clock ``gametime``
-#: (often empty for future weeks); constructing a reliable NFL start
-#: instant — timezone handling, missing-gametime handling, validation of
-#: the composed timestamp, and fail-closed behavior when no reliable
-#: instant exists — is the remaining Phase 7.6 start-timestamp item, so
-#: NFL stays date-granularity until that lands.
+#: ALL FOUR SPORTS compare at instant granularity since r9a. MLB/NHL/NBA
+#: carry source-populated ``start_time_utc`` (Statcast; NHL/NBA ingestion
+#: maps startTimeUTC / gameDateTimeUTC). NFL's instant is DERIVED at
+#: ingestion: ``compose_nfl_start_utc`` (sports/nfl/ingestion) composes
+#: ``gameday`` (ET date) + ``gametime`` (ET wall clock) into a
+#: DST-correct UTC instant and fails closed (NaN) on missing/invalid
+#: inputs — the Phase 7.6 start-timestamp item, closed in r9.
 INSTANT_START_COL = "start_time_utc"
 
 #: The per-sport comparison resolution (single source of truth; the
 #: guardrail test pins each runner to exactly this value).
-SPORT_RESOLUTION = {"mlb": "instant", "nfl": "date", "nhl": "instant",
+SPORT_RESOLUTION = {"mlb": "instant", "nfl": "instant", "nhl": "instant",
                     "nba": "instant"}
 
 #: The per-sport start column the slate gate compares on.
-SPORT_START_COL = {"mlb": "start_time_utc", "nfl": "gameday",
+SPORT_START_COL = {"mlb": "start_time_utc", "nfl": "start_time_utc",
                    "nhl": "start_time_utc", "nba": "start_time_utc"}
 
 #: Sports whose serving slates must carry the instant start column.
 #: The guardrail test re-derives this set as the instant-resolution sports.
-INSTANT_SPORTS = ("mlb", "nhl", "nba")
+INSTANT_SPORTS = ("mlb", "nfl", "nhl", "nba")
 
 
 def window_anchor(window_first_date: str) -> datetime:
@@ -226,14 +222,12 @@ def validate_slate_window(frame, *, anchor_utc: datetime, start_col: str,
     ``resolution`` only selects the comparison granularity each sport's
     start data supports:
 
-    * ``"instant"`` (MLB ``start_time_utc``; NHL/NBA ``start_time_utc``
-      since the Phase 7.6-B rebinding): start instant must be at or
-      after the window's opening instant;
-    * ``"date"`` (NFL ``gameday``): start calendar date must be at or
-      after the window's first date. An instant-granularity NFL start is
-      the remaining Phase 7.6 start-timestamp item (timezone +
-      missing-gametime handling, tracked in docs/TRACKER.md), at which
-      point NFL tightens to ``"instant"``.
+    * ``"instant"`` (all four sports since r9a — MLB/NHL/NBA
+      ``start_time_utc`` source-populated; NFL ``start_time_utc``
+      derived at ingestion via ``compose_nfl_start_utc``): start
+      instant must be at or after the window's opening instant;
+    * ``"date"`` (no sport today; kept for generality): start calendar
+      date must be at or after the window's first date.
     """
     if resolution not in ("instant", "date"):
         raise ValidationError(
