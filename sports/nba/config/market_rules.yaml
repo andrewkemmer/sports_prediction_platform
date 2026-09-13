@@ -1,0 +1,22 @@
+# NBA market settlement rules (spec §20; loaded by the NBA SportAdapter).
+sport: nba
+market_rules_version: nba_v1
+
+settlement:
+  moneyline:
+    # Full-game: OT resolves every game — a two-way market. TIE is
+    # structurally impossible (never a settlement outcome).
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: false
+  spread:
+    # Integer lines can push; half-point lines cannot (enforced by
+    # core.contracts.settlement_rules regardless). Settlement reads the
+    # FINAL margin (incl. any OT) vs the actual line.
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true
+  total:
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true

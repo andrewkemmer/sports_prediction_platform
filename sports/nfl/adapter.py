@@ -25,6 +25,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from core.config import load_market_rules
+from core.config.sources import SportMarketRules
 from core.contracts import (
     ArtifactContract,
     ArtifactFamily,
@@ -32,6 +34,18 @@ from core.contracts import (
 )
 from core.contracts import SettlementConfig
 from sports.nfl.features.registry import build_feature_contract
+
+#: Settlement rules singleton — declared in ``config/market_rules.yaml``
+#: (spec §20), loaded once per process, failing loudly on a missing or
+#: invalid file.
+_MARKET_RULES: SportMarketRules | None = None
+
+
+def _market_rules() -> SportMarketRules:
+    global _MARKET_RULES
+    if _MARKET_RULES is None:
+        _MARKET_RULES = load_market_rules("nfl")
+    return _MARKET_RULES
 
 
 class NFLAdapter:
@@ -223,21 +237,11 @@ class NFLAdapter:
         return probs
 
     # ------------------------------------------------------------------
-    # Settlement configs (core.markets)
+    # Settlement configs — declared in config/market_rules.yaml (§20)
     # ------------------------------------------------------------------
 
     def settlement_config(self, market_kind: str) -> SettlementConfig:
-        """The settlement config for one of the NFL's market kinds."""
-        if market_kind == "moneyline":
-            # NFL full-game ties are real outcomes (three-way market).
-            return SettlementConfig(settlement_scope="full_game",
-                                    tie_allowed=True, push_allowed=False)
-        if market_kind in ("spread", "total"):
-            # Integer lines can push; half-point lines cannot (enforced by
-            # core.markets regardless of this flag). A tied game is not a
-            # spread push: settlement reads the final margin vs the line.
-            return SettlementConfig(settlement_scope="full_game",
-                                    tie_allowed=False, push_allowed=True)
-        raise KeyError(
-            f"unknown NFL market kind {market_kind!r} "
-            f"(expected moneyline|spread|total)")
+        """The settlement config for one of the NFL's market kinds, read
+        from ``config/market_rules.yaml``. An undeclared kind raises
+        ``KeyError`` — settlement semantics are never invented here."""
+        return _market_rules().settlement_config(market_kind)

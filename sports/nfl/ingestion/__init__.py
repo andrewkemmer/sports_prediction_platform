@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from core.config import DataSourcesError, load_data_sources
 from sports.nfl.features.raw.catalog import (
     KEEP_GAME_TYPES,
     PBP_COLS,
@@ -68,17 +69,33 @@ EXTERNAL_SOURCES: dict[str, str] = {
     SOURCE_TEAMS: "_default_load_teams",
 }
 
-#: Required (identity / date / score) source columns — a payload missing
-#: any of these is schema drift and fails loudly. Optional catalog columns
-#: are NaN-filled explicitly.
-REQUIRED_COLS: dict[str, tuple[str, ...]] = {
-    "schedules": ("game_id", "season", "game_type", "gameday",
-                  "home_team", "away_team", "home_score", "away_score"),
-    "pbp": ("game_id", "posteam", "defteam"),
-    "player_stats": ("player_id", "player_name", "team", "season",
-                     "week"),
-    "teams": ("team_abbr", "team_name"),
+#: Required (identity / date / score) source columns and transport policy —
+#: declared in ``config/data_sources.yaml`` (spec §5) and loaded once per
+#: process. A payload missing a declared column is schema drift and fails
+#: loudly. Each declared ``source_id`` is cross-checked against the
+#: SOURCE_* constants above so the registry and the policy file cannot
+#: drift apart silently.
+_SOURCES = load_data_sources("nfl")
+_REQUIRED_DECLARED_IDS = {
+    "schedules": SOURCE_SCHEDULES,
+    "pbp": SOURCE_PBP,
+    "player_stats": SOURCE_PLAYER_STATS,
+    "teams": SOURCE_TEAMS,
 }
+if set(_SOURCES.required_columns) != set(_REQUIRED_DECLARED_IDS):
+    raise DataSourcesError(
+        "data_sources.yaml sources do not match the NFL ingestion "
+        f"registry: yaml={sorted(_SOURCES.required_columns)} "
+        f"code={sorted(_REQUIRED_DECLARED_IDS)}")
+for _name, _sid in _REQUIRED_DECLARED_IDS.items():
+    if _SOURCES.source_ids.get(_name) != _sid:
+        raise DataSourcesError(
+            f"data_sources.yaml source_id drift for {_name!r}: "
+            f"yaml={_SOURCES.source_ids.get(_name)!r} "
+            f"code={_sid!r}")
+REQUIRED_COLS: dict[str, tuple[str, ...]] = dict(_SOURCES.required_columns)
+CHUNK_RETRIES = _SOURCES.policy.chunk_retries
+CHUNK_RETRY_BASE_MS = _SOURCES.policy.chunk_retry_base_ms
 
 #: Approved non-fatal degradations — every entry is an explicitly
 #: reviewed exception to the no-silent-fallback guardrail. Any new

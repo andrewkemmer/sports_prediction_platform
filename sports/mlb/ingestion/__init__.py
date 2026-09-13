@@ -28,6 +28,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from core.config import DataSourcesError, load_data_sources
+
 from sports.mlb.features.raw.catalog import (
     COLUMN_ALIASES,
     KEEP_GAME_TYPES,
@@ -41,13 +43,10 @@ logger = logging.getLogger(__name__)
 
 # A transient network/parse failure retries with backoff before it may be
 # judged empty. An empty past-dated core-season chunk after exhaustion is a
-# hard abort (see _abort_on_exhausted_core_season_empty_chunk).
-CHUNK_RETRIES = 3
-CHUNK_RETRY_BASE_MS = 1000
-
-# Re-pull this many trailing days on every resume so games captured
-# mid-game (partial Statcast posts) get their real finals.
-REFRESH_TAIL_DAYS = 3
+# hard abort (see _abort_on_exhausted_core_season_empty_chunk). The retry,
+# backoff and refresh-tail values are declared in
+# ``config/data_sources.yaml`` (spec §5) and loaded with the source
+# registry below (which they cross-check).
 
 _REGULAR_SEASON_CORE_MONTHS = {4, 5, 6, 7, 8, 9}
 
@@ -73,6 +72,29 @@ SOURCE_STATCAST = "mlb:pybaseball.statcast"
 #: integration-smoke guardrail (tests/core/test_spec_guardrails.py).
 EXTERNAL_SOURCES: dict[str, str] = {SOURCE_STATCAST: "_default_fetch"}
 
+#: Required columns and transport policy — declared in
+#: ``config/data_sources.yaml`` (spec §5) and loaded once per process.
+#: The declared ``source_id`` is cross-checked against SOURCE_STATCAST so
+#: the registry and the policy file cannot drift apart silently.
+_SOURCES = load_data_sources("mlb")
+_REQUIRED_DECLARED_IDS = {"statcast": SOURCE_STATCAST}
+if set(_SOURCES.required_columns) != set(_REQUIRED_DECLARED_IDS):
+    raise DataSourcesError(
+        "data_sources.yaml sources do not match the MLB ingestion "
+        f"registry: yaml={sorted(_SOURCES.required_columns)} "
+        f"code={sorted(_REQUIRED_DECLARED_IDS)}")
+if _SOURCES.source_ids.get("statcast") != SOURCE_STATCAST:
+    raise DataSourcesError(
+        f"data_sources.yaml source_id drift for 'statcast': "
+        f"yaml={_SOURCES.source_ids.get('statcast')!r} "
+        f"code={SOURCE_STATCAST!r}")
+CHUNK_RETRIES = _SOURCES.policy.chunk_retries
+CHUNK_RETRY_BASE_MS = _SOURCES.policy.chunk_retry_base_ms
+
+# Re-pull this many trailing days on every resume so games captured
+# mid-game (partial Statcast posts) get their real finals.
+REFRESH_TAIL_DAYS = _SOURCES.policy.refresh_tail_days
+
 #: Approved non-fatal degradations — every entry is an explicitly
 #: reviewed exception to the no-silent-fallback guardrail. Any new
 #: warn-and-continue path must add a key here first (guardrail-pinned:
@@ -86,11 +108,7 @@ APPROVED_DEGRADATIONS: dict[str, str] = {
         "a corrupt cache is re-pulled from the source"),
 }
 
-REQUIRED_STATCAST_COLS: tuple[str, ...] = (
-    "game_date", "game_pk", "game_type", "home_team", "away_team",
-    "at_bat_number", "pitch_number", "pitcher", "batter",
-    "home_score", "away_score",
-)
+REQUIRED_STATCAST_COLS: tuple[str, ...] = _SOURCES.required_columns["statcast"]
 
 
 # ---------------------------------------------------------------------------

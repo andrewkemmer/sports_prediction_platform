@@ -1,0 +1,34 @@
+# NHL data-source policy (spec §5; consumed by sports/nhl/ingestion).
+sport: nhl
+data_sources_version: nhl_v1
+
+sources:
+  schedule:
+    source_id: "nhl:api-web.nhle.com/schedule"
+    required_columns:
+      - game_id
+      - season
+      - game_type
+      - game_date
+      - home_team
+      - away_team
+      - home_score
+      - away_score
+  boxscore:
+    source_id: "nhl:api-web.nhle.com/boxscore"
+    required_columns:
+      - game_id
+      - season
+      - game_type
+      - game_date
+      - home_team
+      - away_team
+      - home_score
+      - away_score
+
+policy:
+  chunk_retries: 3
+  chunk_retry_base_ms: 1000
+  # Re-pull this many trailing days on every incremental resume so games
+  # that finished after the last pull get their real finals.
+  refresh_tail_days: 3

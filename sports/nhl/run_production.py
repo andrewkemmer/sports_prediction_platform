@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 from core.config import PlatformConfig, default_config
-from core.contracts import FULL_GAME_TIE_ALLOWED
+from core.config import load_market_rules
 from core.contracts import validate_record
 from core.artifacts import run_production_retention
 from core.validation.future_availability import (
@@ -43,6 +43,11 @@ from core.config import resolve_run_window
 from sports.nhl.config.study_config import load_nhl_study
 
 logger = logging.getLogger(__name__)
+
+#: Settlement rules — declared in ``config/market_rules.yaml`` (spec §20)
+#: and loaded once per process; the OOF settlement gate reads the
+#: moneyline rule from here instead of a hardcoded constant.
+_MARKET_RULES = load_market_rules("nhl")
 
 #: Env var names for the NHL production run (strict; no aliases, no
 #: defaults — season-based variables are explicitly forbidden).
@@ -243,7 +248,8 @@ def run_nhl_production(
             outcome = "home" if float(y) == 1.0 else "away"
             rec = validate_settlement_record(
                 {"outcome": outcome, "scope": "full_game"},
-                market_kind="moneyline", settlement_cfg=FULL_GAME_TIE_ALLOWED,
+                market_kind="moneyline",
+                settlement_cfg=_MARKET_RULES.settlement_config("moneyline"),
                 label=f"nhl oof moneyline row {gid}")
             if not rec.ok:
                 raise NHLRunnerError(

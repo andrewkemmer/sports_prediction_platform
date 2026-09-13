@@ -32,7 +32,21 @@ from core.contracts import (
     ArtifactFamily,
     ParticipantBox,
 )
+from core.config import load_market_rules
+from core.config.sources import SportMarketRules
 from core.contracts import SettlementConfig
+
+#: Settlement rules singleton — declared in ``config/market_rules.yaml``
+#: (spec §20), loaded once per process, failing loudly on a missing or
+#: invalid file.
+_MARKET_RULES: SportMarketRules | None = None
+
+
+def _market_rules() -> SportMarketRules:
+    global _MARKET_RULES
+    if _MARKET_RULES is None:
+        _MARKET_RULES = load_market_rules("nhl")
+    return _MARKET_RULES
 from sports.nhl.features.registry import build_feature_contract
 
 
@@ -231,22 +245,7 @@ class NHLAdapter:
     # ------------------------------------------------------------------
 
     def settlement_config(self, market_kind: str) -> SettlementConfig:
-        """The settlement config for one of the NHL's market kinds."""
-        if market_kind == "moneyline":
-            # Full-game: OT/SO resolves every game — a two-way market.
-            return SettlementConfig(settlement_scope="full_game",
-                                    tie_allowed=False, push_allowed=False)
-        if market_kind == "moneyline_regulation":
-            # Regulation 3-way: the regulation tie is a real outcome with
-            # explicit p_tie.
-            return SettlementConfig(settlement_scope="regulation",
-                                    tie_allowed=True, push_allowed=False)
-        if market_kind in ("puckline", "total"):
-            # Integer lines can push; half-point lines cannot (enforced by
-            # core.markets regardless). Settlement reads the FINAL margin
-            # (incl. OT/SO) vs the actual line.
-            return SettlementConfig(settlement_scope="full_game",
-                                    tie_allowed=False, push_allowed=True)
-        raise KeyError(
-            f"unknown NHL market kind {market_kind!r} "
-            f"(expected moneyline|moneyline_regulation|puckline|total)")
+        """The settlement config for one of the NHL's market kinds, read
+        from ``config/market_rules.yaml``. An undeclared kind raises
+        ``KeyError`` — settlement semantics are never invented here."""
+        return _market_rules().settlement_config(market_kind)

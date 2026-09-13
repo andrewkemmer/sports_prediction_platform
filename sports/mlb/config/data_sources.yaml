@@ -1,0 +1,31 @@
+# MLB data-source policy (spec §5; consumed by sports/mlb/ingestion).
+#
+# Declares the external sources, their REQUIRED payload columns (schema
+# drift fails loudly), and the transport policy (chunk retries/backoff,
+# incremental refresh tail). Values mirror the pre-r4 code constants —
+# this file makes them configurable without touching transport code.
+sport: mlb
+data_sources_version: mlb_v1
+
+sources:
+  statcast:
+    source_id: "mlb:pybaseball.statcast"
+    required_columns:
+      - game_date
+      - game_pk
+      - game_type
+      - home_team
+      - away_team
+      - at_bat_number
+      - pitch_number
+      - pitcher
+      - batter
+      - home_score
+      - away_score
+
+policy:
+  chunk_retries: 3
+  chunk_retry_base_ms: 1000
+  # Re-pull this many trailing days on every resume so games captured
+  # mid-game (partial Statcast posts) get their real finals.
+  refresh_tail_days: 3

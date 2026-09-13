@@ -7,6 +7,10 @@ Contents:
                       resolution (former ``core/runconfig.py``).
 * ``prediction_window`` — first/last prediction game-date window semantics
                       (former ``core/prediction_window.py``).
+* ``sources``       — per-sport market settlement rules from
+                      ``market_rules.yaml`` (r4).
+* ``source_policy`` — per-sport data-source/schema/transport policy from
+                      ``data_sources.yaml`` (r4).
 
 Public surface is re-exported verbatim; every legacy ``core.config`` /
 ``core.runconfig`` / ``core.prediction_window`` import path keeps working
@@ -33,6 +37,18 @@ from core.config.platform import (  # noqa: F401
     is_unknown_sport,
     load_config,
     normalize_sport_key,
+)
+from core.config.sources import (  # noqa: F401
+    MarketRulesError,
+    SportMarketRules,
+    load_market_rules,
+)
+from core.config.source_policy import (  # noqa: F401
+    DataSourcesError,
+    SourcePolicy,
+    SourcePolicyError,
+    SportDataSources,
+    load_data_sources,
 )
 from core.config.prediction_window import (  # noqa: F401
     PredictionWindow,
@@ -81,4 +97,12 @@ __all__ = [
     "RunConfigError",
     "RunWindow",
     "resolve_run_window",
+    "MarketRulesError",
+    "SportMarketRules",
+    "load_market_rules",
+    "DataSourcesError",
+    "SourcePolicy",
+    "SourcePolicyError",
+    "SportDataSources",
+    "load_data_sources",
 ]

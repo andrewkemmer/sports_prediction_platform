@@ -1,0 +1,39 @@
+# NFL data-source policy (spec §5; consumed by sports/nfl/ingestion).
+sport: nfl
+data_sources_version: nfl_v1
+
+sources:
+  schedules:
+    source_id: "nfl:nflreadpy.load_schedules"
+    required_columns:
+      - game_id
+      - season
+      - game_type
+      - gameday
+      - home_team
+      - away_team
+      - home_score
+      - away_score
+  pbp:
+    source_id: "nfl:nflreadpy.load_pbp"
+    required_columns:
+      - game_id
+      - posteam
+      - defteam
+  player_stats:
+    source_id: "nfl:nflreadpy.load_player_stats"
+    required_columns:
+      - player_id
+      - player_name
+      - team
+      - season
+      - week
+  teams:
+    source_id: "nfl:nflreadpy.load_teams"
+    required_columns:
+      - team_abbr
+      - team_name
+
+policy:
+  chunk_retries: 3
+  chunk_retry_base_ms: 1000

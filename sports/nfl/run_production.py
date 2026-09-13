@@ -30,8 +30,8 @@ import numpy as np
 import pandas as pd
 
 from core.config import PlatformConfig, default_config
+from core.config import load_market_rules
 from core.contracts import validate_record
-from core.contracts import FULL_GAME_NO_TIE
 from core.validation.future_availability import (
     validate_available_at,
     validate_settlement_record,
@@ -49,6 +49,11 @@ from sports.nfl.ingestion import (
 from sports.nfl.config.study_config import load_nfl_study
 
 logger = logging.getLogger(__name__)
+
+#: Settlement rules — declared in ``config/market_rules.yaml`` (spec §20)
+#: and loaded once per process; the OOF settlement gate reads the
+#: moneyline rule from here instead of a hardcoded constant.
+_MARKET_RULES = load_market_rules("nfl")
 
 #: Env var names for the NFL production run (strict; no aliases, no
 #: defaults — season-based variables are explicitly forbidden).
@@ -542,9 +547,9 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
                               o["y_push_spread_fair"] == 1.0)
                    else "home" if o["y_home_win"] == 1.0 else "away")
         rec = validate_settlement_record(
-            {"outcome": outcome, "scope": "full_game"},
-            market_kind="moneyline", settlement_cfg=FULL_GAME_NO_TIE,
-            label=f"nfl fair market row {df['game_id'].iloc[i]}")
+            {"outcome": outcome, "scope": "full_game"},                market_kind="moneyline",
+                settlement_cfg=_MARKET_RULES.settlement_config("moneyline"),
+                label=f"nfl fair market row {df['game_id'].iloc[i]}")
         if not rec.ok:
             raise NFLRunnerError(f"settlement gate failed: {rec.violations}")
     return df

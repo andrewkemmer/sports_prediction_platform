@@ -1,0 +1,30 @@
+# MLB market settlement rules (spec §20; loaded by the MLB SportAdapter).
+#
+# Every market kind the MLB production runner may settle is declared here
+# with its scope and tie/push gates. A kind missing from this file cannot
+# be settled anywhere in the MLB pipeline (the adapter raises KeyError) —
+# no silent default semantics.
+sport: mlb
+market_rules_version: mlb_v1
+
+settlement:
+  moneyline:
+    # A decided MLB game always has a winner: no tie, no push.
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: false
+  total:
+    # Integer total lines can push; half-point lines cannot (enforced by
+    # core.contracts.settlement_rules regardless of this flag).
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true
+  spread:
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true
+  run_line:
+    # Run lines are half-point (-1.5/+1.5) so a push is never real.
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true

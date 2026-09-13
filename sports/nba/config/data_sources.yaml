@@ -1,0 +1,33 @@
+# NBA data-source policy (spec §5; consumed by sports/nba/ingestion).
+sport: nba
+data_sources_version: nba_v1
+
+sources:
+  schedule:
+    source_id: "nba:stats.nba.com/scheduleleaguev2"
+    required_columns:
+      - game_id
+      - season
+      - game_type
+      - game_date
+      - home_team
+      - away_team
+      - home_score
+      - away_score
+  boxscore:
+    source_id: "nba:stats.nba.com/boxscoretraditionalv3"
+    required_columns:
+      - game_id
+      - season
+      - game_type
+      - game_date
+      - home_team
+      - away_team
+      - home_score
+      - away_score
+
+policy:
+  chunk_retries: 3
+  chunk_retry_base_ms: 1000
+  # Request pacing (the stats API tolerates ~1-2 req/s sustained).
+  request_pause_ms: 500

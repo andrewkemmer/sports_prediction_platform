@@ -30,7 +30,21 @@ from core.contracts import (
     ArtifactFamily,
     ParticipantBox,
 )
+from core.config import load_market_rules
+from core.config.sources import SportMarketRules
 from core.contracts import SettlementConfig
+
+#: Settlement rules singleton — declared in ``config/market_rules.yaml``
+#: (spec §20), loaded once per process, failing loudly on a missing or
+#: invalid file.
+_MARKET_RULES: SportMarketRules | None = None
+
+
+def _market_rules() -> SportMarketRules:
+    global _MARKET_RULES
+    if _MARKET_RULES is None:
+        _MARKET_RULES = load_market_rules("nba")
+    return _MARKET_RULES
 from sports.nba.features.registry import build_feature_contract
 
 
@@ -226,18 +240,7 @@ class NBAAdapter:
     # ------------------------------------------------------------------
 
     def settlement_config(self, market_kind: str) -> SettlementConfig:
-        """The settlement config for one of the NBA's market kinds."""
-        if market_kind == "moneyline":
-            # Full-game: OT resolves every game — a two-way market. TIE is
-            # structurally impossible (never a settlement outcome).
-            return SettlementConfig(settlement_scope="full_game",
-                                    tie_allowed=False, push_allowed=False)
-        if market_kind in ("spread", "total"):
-            # Integer lines can push; half-point lines cannot (enforced by
-            # core.markets regardless). Settlement reads the FINAL margin
-            # (incl. any OT) vs the actual line.
-            return SettlementConfig(settlement_scope="full_game",
-                                    tie_allowed=False, push_allowed=True)
-        raise KeyError(
-            f"unknown NBA market kind {market_kind!r} "
-            f"(expected moneyline|spread|total)")
+        """The settlement config for one of the NBA's market kinds, read
+        from ``config/market_rules.yaml``. An undeclared kind raises
+        ``KeyError`` — settlement semantics are never invented here."""
+        return _market_rules().settlement_config(market_kind)

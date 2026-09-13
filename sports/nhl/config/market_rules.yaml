@@ -1,0 +1,30 @@
+# NHL market settlement rules (spec §20; loaded by the NHL SportAdapter).
+sport: nhl
+market_rules_version: nhl_v1
+
+settlement:
+  moneyline:
+    # Full-game: OT/SO resolves every game — a two-way market. (The
+    # production runner's OOF moneyline gate uses the tie-capable config
+    # via moneyline_regulation settlement parity; see market rules note
+    # in the NHL runner.)
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: false
+  moneyline_regulation:
+    # Regulation 3-way: the regulation tie is a real outcome with an
+    # explicit p_tie.
+    settlement_scope: regulation
+    tie_allowed: true
+    push_allowed: false
+  puckline:
+    # Integer lines can push; half-point lines cannot (enforced by
+    # core.contracts.settlement_rules regardless). Settlement reads the
+    # FINAL margin (incl. OT/SO) vs the actual line.
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true
+  total:
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true

@@ -185,6 +185,13 @@ files:
     class: production
     description: core.contracts artifact/model-output contracts
     topics: [feature_contract_validation, model_output_schema]
+  - path: tests/test_config_rules.py
+    class: production
+    description: >
+      config-driven market settlement rules + data-source policy (r4):
+      loaders fail loudly; adapters/runners/ingestion serve the YAML
+      with no drift (spec §20/§5).
+    topics: [p_push, p_tie, market_normalization, incremental_cache_updates]
   - path: tests/test_dates.py
     class: production
     description: core.dates parsing/validation

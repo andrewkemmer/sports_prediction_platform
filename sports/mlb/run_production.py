@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 from core.config import PlatformConfig, default_config
-from core.contracts import FULL_GAME_NO_TIE
+from core.config import load_market_rules
 from core.folds import brier_score
 from core.config import resolve_prediction_window
 from core.validation.future_availability import (
@@ -43,6 +43,11 @@ from core.config import resolve_run_window
 from sports.mlb.artifacts import write_all_artifacts
 from sports.mlb.ingestion import pull_statcast
 from sports.mlb.config.study_config import load_mlb_study
+
+#: Settlement rules — declared in ``config/market_rules.yaml`` (spec §20)
+#: and loaded once per process; the OOF settlement gate reads the
+#: moneyline rule from here instead of a hardcoded constant.
+_MARKET_RULES = load_market_rules("mlb")
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +167,8 @@ def run_mlb_production(
             outcome = "home" if float(y) == 1.0 else "away"
             rec = validate_settlement_record(
                 {"outcome": outcome, "scope": "full_game"},
-                market_kind="moneyline", settlement_cfg=FULL_GAME_NO_TIE,
+                market_kind="moneyline",
+                settlement_cfg=_MARKET_RULES.settlement_config("moneyline"),
                 label=f"mlb oof moneyline row {gid}")
             if not rec.ok:
                 raise MLBRunnerError(

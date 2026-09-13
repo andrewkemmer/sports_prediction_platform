@@ -1,0 +1,22 @@
+# NFL market settlement rules (spec §20; loaded by the NFL SportAdapter).
+sport: nfl
+market_rules_version: nfl_v1
+
+settlement:
+  moneyline:
+    # NFL full-game ties are real outcomes (three-way market).
+    settlement_scope: full_game
+    tie_allowed: true
+    push_allowed: false
+  spread:
+    # Integer lines can push; half-point lines cannot (enforced by
+    # core.contracts.settlement_rules regardless of this flag). A tied
+    # game is not a spread push: settlement reads the final margin vs
+    # the line.
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true
+  total:
+    settlement_scope: full_game
+    tie_allowed: false
+    push_allowed: true
