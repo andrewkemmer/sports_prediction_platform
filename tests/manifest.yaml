@@ -181,6 +181,16 @@ files:
     class: production
     description: core.config contracts
     topics: [imports_and_syntax, start_end_semantics]
+  - path: tests/test_market_contract.py
+    class: production
+    description: >
+      market contract completion (r7, §11/§13/§15): shared PMF
+      calibration primitives with exact integer-line push semantics,
+      §22 dedupe (sport engines rebind core/calibration/market.py),
+      §11 market-basis independence, and the bounded §15
+      training-policy candidate set.
+    topics: [score_distribution_normalization, feature_contract_validation,
+             leakage_prevention]
   - path: tests/test_contracts.py
     class: production
     description: core.contracts artifact/model-output contracts

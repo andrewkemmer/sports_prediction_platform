@@ -30,6 +30,19 @@ from sports.nfl.features.build_frame import tree_view
 from core.folds import make_folds
 from sports.nfl.config.study_config import load_nfl_study
 
+from core.calibration.market import (
+    apply_distribution_frame,
+    discrete_normal_pmf,
+    margin_cdf_above,
+    margin_pmf_at,
+    pmf_median,
+    total_probabilities,
+)
+
+# The fair-line helper keeps its historical intra-module name.
+_pmf_median = pmf_median
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,58 +50,6 @@ logger = logging.getLogger(__name__)
 # Discrete normal PMF helpers (integer support, NFL point mechanics)
 # ---------------------------------------------------------------------------
 
-
-def discrete_normal_pmf(mu: float, sigma: float,
-                        support: np.ndarray) -> np.ndarray:
-    """P(X = k) for integer support k, X ~ Normal(mu, sigma), normalized."""
-    if not np.isfinite(mu) or not np.isfinite(sigma) or sigma <= 0:
-        return np.full(len(support), np.nan)
-    z = (support - mu) / sigma
-    pdf = np.exp(-0.5 * z * z) / (sigma * np.sqrt(2.0 * np.pi))
-    pmf = pdf / pdf.sum()
-    return pmf
-
-
-def margin_cdf_above(pmf: np.ndarray, support: np.ndarray, L: float) -> float:
-    """P(margin > L) for a real-valued threshold L over integer support.
-
-    A margin m covers L iff m > L, i.e. m >= floor(L) + 1 for non-integer
-    L, and m >= L + 1 for integer L. (NFL margins are integers; the
-    contract P(m > L) is honored exactly.)"""
-    if L == int(L):
-        thresh = int(L) + 1
-    else:
-        thresh = int(np.floor(L)) + 1
-    idx = support >= thresh
-    return float(pmf[idx].sum()) if np.isfinite(pmf).all() else np.nan
-
-
-def margin_pmf_at(pmf: np.ndarray, support: np.ndarray, L: float) -> float:
-    """P(margin == L) — zero for non-integer L, PMF mass at int(L) else."""
-    if L != int(L):
-        return 0.0
-    hit = support == int(L)
-    return float(pmf[hit].sum()) if np.isfinite(pmf).all() else np.nan
-
-
-def total_probabilities(pmf: np.ndarray, support: np.ndarray,
-                        U: float) -> tuple[float, float, float]:
-    """(P(total > U), P(total = U), P(total < U)) — sums to 1 exactly."""
-    if not np.isfinite(pmf).all():
-        return (np.nan, np.nan, np.nan)
-    p_eq = float(pmf[support == int(U)].sum()) if U == int(U) else 0.0
-    p_gt = float(pmf[support > U].sum())
-    p_lt = float(pmf[support < U].sum())
-    return (p_gt, p_eq, p_lt)
-
-
-def _pmf_median(pmf: np.ndarray, support: np.ndarray) -> float:
-    """Smallest integer k with cumulative PMF >= 0.5 (the fair line)."""
-    if not np.isfinite(pmf).all():
-        return np.nan
-    c = np.cumsum(pmf)
-    idx = int(np.searchsorted(c, 0.5))
-    return float(support[min(idx, len(support) - 1)])
 
 
 # ---------------------------------------------------------------------------
@@ -125,12 +86,9 @@ class ScoreRegressor:
         self.away_model = _make_reg("lightgbm", seed)
 
     def _matrix(self, df: pd.DataFrame, study) -> pd.DataFrame:
-        # BASIS (Phase 7.5e-B): ``tree_view`` is moneyline-basis
-        # (study.moneyline_feature_cols). This market path is therefore
-        # MONEYLINE-BASIS BY DECLARATION; its basis is audited and explicitly
-        # rebound, if required, in Phase 7.5e-C together with the market
-        # contract builders. See sports/nfl/features.py::tree_view.
-        Xv = tree_view(df, study=study)
+        # MARKET basis (§11, r7): the market model selects its own
+        # contract — never the moneyline's feature list.
+        Xv = tree_view(df, study=study, basis="market")
         X = Xv.to_numpy(dtype=np.float64)
         with np.errstate(all="ignore"):
             med = np.nanmedian(X, axis=0)
@@ -151,7 +109,7 @@ class ScoreRegressor:
 
 
 # ---------------------------------------------------------------------------
-# sigma estimation / calibration — pooled OOF residuals, one scalar pair
+# sigma estimation / calibration â€” pooled OOF residuals, one scalar pair
 # ---------------------------------------------------------------------------
 
 
@@ -172,7 +130,7 @@ def calibrate_sigma(resid_margin: np.ndarray, resid_total: np.ndarray,
 
 
 # ---------------------------------------------------------------------------
-# Distribution engine — everything derives from (mu_h, mu_a, sigma_m, sigma_t)
+# Distribution engine â€” everything derives from (mu_h, mu_a, sigma_m, sigma_t)
 # ---------------------------------------------------------------------------
 
 
@@ -187,7 +145,7 @@ def game_distribution(mu_h: float, mu_a: float, sigma_margin: float,
     pmf_m = discrete_normal_pmf(mu_margin, sigma_margin, support_m)
     pmf_t = discrete_normal_pmf(mu_total, sigma_total, support_t)
 
-    # derived moneyline: THREE-way — P(home win), P(tie), P(away win)
+    # derived moneyline: THREE-way â€” P(home win), P(tie), P(away win)
     p_home_win = margin_cdf_above(pmf_m, support_m, 0.0)
     p_tie = margin_pmf_at(pmf_m, support_m, 0.0)
     p_away_win = 1.0 - p_home_win - p_tie
@@ -209,7 +167,7 @@ def game_distribution(mu_h: float, mu_a: float, sigma_margin: float,
     for L in mc.spread_lines:
         out[f"p_home_cover_{L}"] = margin_cdf_above(pmf_m, support_m, float(L))
         out[f"p_push_{L}"] = margin_pmf_at(pmf_m, support_m, float(L))
-    # half-stop lines (±0.5): no push band (margins are integers)
+    # half-stop lines (Â±0.5): no push band (margins are integers)
     for L in mc.half_stop_lines:
         label = str(L).replace(".", "_").replace("-", "m")
         out[f"p_home_cover_{label}"] = margin_cdf_above(pmf_m, support_m, L)
@@ -227,14 +185,11 @@ def apply_distribution(df: pd.DataFrame, sigma_margin: float,
                        sigma_total: float, study) -> pd.DataFrame:
     """Expand a frame with mu_h/mu_a into the full distributional columns.
     Distribution columns already present on the input are replaced (never
-    duplicated) — the engine is the single authority for these values."""
+    duplicated) â€” the engine is the single authority for these values."""
     rows = [game_distribution(r.mu_h, r.mu_a, sigma_margin, sigma_total,
                               study)
             for r in df.itertuples(index=False)]
-    dist = pd.DataFrame(rows, index=df.index)
-    base = df.drop(columns=[c for c in dist.columns if c in df.columns])
-    return pd.concat([base.reset_index(drop=True),
-                      dist.reset_index(drop=True)], axis=1)
+    return apply_distribution_frame(df, rows)
 
 
 # ---------------------------------------------------------------------------

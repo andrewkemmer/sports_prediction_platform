@@ -1,22 +1,22 @@
 """Feature registry and controlled derivation factory.
 
 Features are DECLARED in a registry (name, summary, formula, source, window,
-units, direction) and derived by a controlled factory — no ad-hoc column
+units, direction) and derived by a controlled factory â€” no ad-hoc column
 creation in the pipeline. The registry doubles as the ``features_metadata``
 artifact source (dashboard tooltips).
 
 The registry owns BOTH versioned per-model contracts (Phase 7.5b canonical
 ownership):
 
-* ``MONEYLINE_FEATURE_COLS`` — the frozen 64-column moneyline view
+* ``MONEYLINE_FEATURE_COLS`` â€” the frozen 64-column moneyline view
   (reference repo's training feature list as of 2026-09-07; the Experiment
   #2 E/F replacement included: the 6 S-family baselines removed, the 8
   exp2 candidates shipped), version ``mlb-moneyline-v75``;
-* ``MARKET_FEATURE_COLS`` — the frozen 53-column run-engine lambda view
+* ``MARKET_FEATURE_COLS`` â€” the frozen 53-column run-engine lambda view
   (RUN_LAMBDA_VIEW_FROZEN from the reference 2026-08-30 keep-list restore;
   53 kept / 14 dropped), version ``mlb-market-v75``.
 
-Both are explicit, independent ``tuple([...])`` constructions — no aliases,
+Both are explicit, independent ``tuple([...])`` constructions â€” no aliases,
 no legacy bare frozen-view symbols. The lists are carried over
 byte-identical to the pre-7.5b state (behavior-neutral).
 """
@@ -466,7 +466,7 @@ _REGISTRY: tuple[FeatureEntry, ...] = (
     # Run-engine-only diffs: declared in MARKET_FEATURE_COLS but NOT in the
     # moneyline contract. Metadata mirrors the production derivations in
     # ``_DIFF_INPUTS`` (raw inputs) and the sibling ``sp_k9_*`` /
-    # ``sp_xwoba_*`` registry entries above — never an invented placeholder.
+    # ``sp_xwoba_*`` registry entries above â€” never an invented placeholder.
     # ------------------------------------------------------------------
     FeatureEntry(
         "sp_k9_diff", "SP season K/9 gap",
@@ -495,11 +495,30 @@ def registry_entries() -> tuple[FeatureEntry, ...]:
     return _REGISTRY
 
 
+def build_market_feature_contract(
+        version: str = MARKET_CONTRACT_VERSION) -> FeatureContract:
+    """The MLB market (run-engine lambda) view as a versioned contract
+    (§11: the market model documents its own basis, never inherits the
+    moneyline's). Members mirror the run-engine's model family."""
+    validate_registry()
+    specs = []
+    for name in MARKET_FEATURE_COLS:
+        entry = next(e for e in _REGISTRY if e.name == name)
+        spec = _spec(entry)
+        specs.append(FeatureSpec(
+            name=spec.name, summary=spec.summary, definition=spec.definition,
+            formula=spec.formula, source=spec.source, window=spec.window,
+            units=spec.units, direction=spec.direction,
+            members=("run_engine",), tooltip=spec.tooltip))
+    return FeatureContract(sport="mlb", version=version,
+                           features=tuple(specs))
+
+
 def build_feature_contract(
         version: str = MONEYLINE_CONTRACT_VERSION) -> FeatureContract:
     """Build the shared FeatureContract from the MLB registry.
 
-    Defaults to the ACTIVE v75 moneyline contract version — no active
+    Defaults to the ACTIVE v75 moneyline contract version â€” no active
     builder defaults to a legacy version string. Moneyline-only: entries
     marked ``contracts={"market"}`` are excluded, so the contract stays the
     frozen 64-feature moneyline view."""
@@ -530,8 +549,8 @@ def validate_registry() -> None:
     validate_metadata_is_reachable(
         "mlb", declared,
         set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
-    # §7.1 B-001-RESIDUAL: every contract field carries an availability
-    # class — the PIT metadata layer is closed over the contracts.
+    # Â§7.1 B-001-RESIDUAL: every contract field carries an availability
+    # class â€” the PIT metadata layer is closed over the contracts.
     require_classes_for(
         "mlb", set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
     # (3) the moneyline-marked entries are EXACTLY the moneyline view.
@@ -556,7 +575,7 @@ def validate_registry() -> None:
 # ---------------------------------------------------------------------------
 
 # Raw home/away inputs each diff is computed from. The factory recomputes
-# every diff from the RAW columns — presence of a diff column is never
+# every diff from the RAW columns â€” presence of a diff column is never
 # evidence its values are current.
 _DIFF_INPUTS: dict[str, tuple[str, str]] = {
     "win_pct_diff": ("home_win_pct", "away_win_pct"),
@@ -609,7 +628,7 @@ def derive_diff_features(df, *, require_records: bool = False):
     import pandas as pd
     if require_records and not {"home_wins", "home_losses"} <= set(df.columns):
         raise ValidationError(
-            "require_records=True but record columns are missing — apply "
+            "require_records=True but record columns are missing â€” apply "
             "official results before deriving diffs")
     out = df.copy()
     for diff, (h, a) in _DIFF_INPUTS.items():
@@ -647,7 +666,7 @@ def derive_diff_features(df, *, require_records: bool = False):
 def ensure_feature_columns(df, feature_cols: tuple[str, ...] | None = None):
     """Guarantee every requested feature column exists (missing -> NaN).
 
-    Never fabricates values — missing observations ship as true NULLs (tree
+    Never fabricates values â€” missing observations ship as true NULLs (tree
     models route NaN natively; zero/median fills fabricated signal).
     """
     import numpy as np

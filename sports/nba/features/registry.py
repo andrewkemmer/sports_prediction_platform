@@ -4,11 +4,11 @@ Declares the served feature contract (``nba-prod-v1``, frozen column
 order) and the controlled derivation paths every model family consumes.
 Missing-data policy (Phase 2.1 parity):
 
-* matrix width is an invariant — absent columns ship as true NaN with a
+* matrix width is an invariant â€” absent columns ship as true NaN with a
   loud warning, never silently dropped;
-* tree members route NaN natively — missingness fully preserved;
+* tree members route NaN natively â€” missingness fully preserved;
 * linear members (logistic, mlp) use medians fit on TRAIN rows only,
-  reused at apply time (validation, slate) — never refit on the data
+  reused at apply time (validation, slate) â€” never refit on the data
   being predicted;
 * entirely-unavailable columns (no training observations) are routed
   explicitly as unavailable and surfaced in features_metadata warnings.
@@ -41,7 +41,7 @@ class NBARegistryError(ValueError):
 # ---------------------------------------------------------------------------
 # The registry OWNS both contracts: explicit, independent tuple([...])
 # constructions (no aliases, no shared objects). Content is byte-identical
-# to the historic single pool (prior version: nba-prod-v1) — behavior-neutral.
+# to the historic single pool (prior version: nba-prod-v1) â€” behavior-neutral.
 
 MONEYLINE_FEATURE_COLS: tuple[str, ...] = tuple([
     "elo_diff", "win_pct_diff", "rest_days_diff", "b2b_home", "b2b_away",
@@ -65,10 +65,10 @@ PRIOR_CONTRACT_VERSION = "nba-prod-v1"
 
 _SPEC_DEFS: dict[str, dict[str, str]] = {
     "elo_diff": {
-        "summary": "Pre-game Elo difference (home − away)",
-        "definition": ("elo_home_entering − elo_away_entering; Elo update "
-                       "r += K*(actual − expected), expected = "
-                       "1/(1+10**((r_opp − r_self)/400))"),
+        "summary": "Pre-game Elo difference (home âˆ’ away)",
+        "definition": ("elo_home_entering âˆ’ elo_away_entering; Elo update "
+                       "r += K*(actual âˆ’ expected), expected = "
+                       "1/(1+10**((r_opp âˆ’ r_self)/400))"),
         "source": "NBA Stats API schedules (decided REG games)",
         "window": "full history (iterative)",
         "units": "rating points",
@@ -83,8 +83,8 @@ _SPEC_DEFS: dict[str, dict[str, str]] = {
         "direction": "positive favors home",
     },
     "rest_days_diff": {
-        "summary": "Days since previous game, home − away",
-        "definition": "(game_date_t − game_date_{t−1}).days per team",
+        "summary": "Days since previous game, home âˆ’ away",
+        "definition": "(game_date_t âˆ’ game_date_{tâˆ’1}).days per team",
         "source": "NBA Stats API schedules",
         "window": "1 game",
         "units": "days",
@@ -117,7 +117,7 @@ _SPEC_DEFS: dict[str, dict[str, str]] = {
     },
     "travel_miles_diff": {
         "summary": "Travel distance difference",
-        "definition": ("haversine(away_arena, venue) − "
+        "definition": ("haversine(away_arena, venue) âˆ’ "
                        "haversine(home_arena, venue)"),
         "source": "committed NBA arena table + schedules",
         "window": "static pre-game fact",
@@ -134,7 +134,7 @@ _SPEC_DEFS: dict[str, dict[str, str]] = {
     },
     "prime_time": {
         "summary": "Evening start flag",
-        "definition": "1.0 when UTC start hour ≥ 19",
+        "definition": "1.0 when UTC start hour â‰¥ 19",
         "source": "NBA Stats API schedules",
         "window": "static pre-game fact",
         "units": "flag",
@@ -148,7 +148,7 @@ def validate_registry() -> None:
 
     NBA's metadata model is the ``_SPEC_DEFS`` mapping; the shared
     ``core.contracts`` interface compares names only, so this sport keeps
-    its existing model — no parallel registry is created. Raises on drift:
+    its existing model â€” no parallel registry is created. Raises on drift:
     a declared column with no spec, or a spec no declared tuple serves.
     """
     metadata = frozenset(_SPEC_DEFS)
@@ -159,10 +159,35 @@ def validate_registry() -> None:
     validate_metadata_is_reachable(
         "nba", metadata,
         set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
-    # §7.1 B-001-RESIDUAL: every contract field carries an availability
-    # class — the PIT metadata layer is closed over the contracts.
+    # Â§7.1 B-001-RESIDUAL: every contract field carries an availability
+    # class â€” the PIT metadata layer is closed over the contracts.
     require_classes_for(
         "nba", set(MONEYLINE_FEATURE_COLS) | set(MARKET_FEATURE_COLS))
+
+
+def build_market_feature_contract(
+        version: str = MARKET_CONTRACT_VERSION) -> FeatureContract:
+    """The NBA market view as a versioned contract (§11: the
+    market model documents its own basis, never inherits the moneyline's).
+    Members mirror the market margin/totals regressor."""
+    validate_registry()
+    specs = []
+    for name in MARKET_FEATURE_COLS:
+        d = _SPEC_DEFS[name]
+        specs.append(FeatureSpec(
+            name=name,
+            summary=d["summary"],
+            definition=d["definition"],
+            formula=d["definition"],
+            source=d["source"],
+            window=d["window"],
+            units=d["units"],
+            direction=d["direction"],
+            members=("score_regressor",),
+            tooltip=d["summary"],
+        ))
+    return FeatureContract(sport="nba", version=version,
+                           features=tuple(specs))
 
 
 def build_feature_contract(
@@ -202,7 +227,7 @@ def build_feature_contract(
 def ensure_feature_columns(df: pd.DataFrame,
                            feature_cols: tuple[str, ...] | None = None,
                            *, warn: bool = True) -> pd.DataFrame:
-    """Matrix-width invariant: every declared column exists (missing → NaN,
+    """Matrix-width invariant: every declared column exists (missing â†’ NaN,
     loud warning) and column order matches the registry."""
     cols = list(feature_cols or MONEYLINE_FEATURE_COLS)
     out = df.reindex(columns=cols)
@@ -211,7 +236,7 @@ def ensure_feature_columns(df: pd.DataFrame,
         if missing:
             logger.warning(
                 "feature matrix missing %d declared columns (shipped as "
-                "true NaN — never silently dropped): %s", len(missing),
+                "true NaN â€” never silently dropped): %s", len(missing),
                 missing)
     return out
 
@@ -219,7 +244,7 @@ def ensure_feature_columns(df: pd.DataFrame,
 def unavailable_columns(df: pd.DataFrame,
                         feature_cols: tuple[str, ...] | None = None
                         ) -> list[str]:
-    """Declared columns with ZERO observations in the frame — routed
+    """Declared columns with ZERO observations in the frame â€” routed
     explicitly as unavailable (surfaced in features_metadata warnings)."""
     cols = list(feature_cols or MONEYLINE_FEATURE_COLS)
     out = []
@@ -233,7 +258,7 @@ def unavailable_columns(df: pd.DataFrame,
 def unavailable_warnings(df: pd.DataFrame,
                          feature_cols: tuple[str, ...] | None = None
                          ) -> list[str]:
-    return [f"unavailable: {c} (no observations in source data — routed "
+    return [f"unavailable: {c} (no observations in source data â€” routed "
             f"as explicitly unavailable per missing-data policy; not "
             f"fabricated)" for c in unavailable_columns(df, feature_cols)]
 
@@ -243,7 +268,7 @@ def _impute_train_median(train: pd.DataFrame,
     """Fit train-only medians; identify entirely-unavailable columns.
 
     A column with no training observations ships as NaN to tree members
-    and imputes to the documented neutral 0.0 for linear members — never a
+    and imputes to the documented neutral 0.0 for linear members â€” never a
     fabricated signal; the column is listed in ``unavailable`` for the
     explicit features_metadata markers.
     """
@@ -256,5 +281,5 @@ def _impute_train_median(train: pd.DataFrame,
 
 
 def apply_impute(X: pd.DataFrame, medians: pd.Series) -> pd.DataFrame:
-    """Apply fitted train medians (validation/slate rows) — never refit."""
+    """Apply fitted train medians (validation/slate rows) â€” never refit."""
     return X.astype(float).fillna(medians)

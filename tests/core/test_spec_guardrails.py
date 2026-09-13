@@ -1351,3 +1351,41 @@ def test_mlb_slate_anchor_source_is_the_serving_windows_first_date():
                                 start_col="start_time_utc",
                                 resolution="instant", label="mlb")
     assert not rep.ok and rep.n_future_violations == 1
+
+
+# ---------------------------------------------------------------------------
+# 23. §11 contract independence (r7): the market model never reads the
+#     moneyline contract's feature list (and vice versa).
+# ---------------------------------------------------------------------------
+
+def test_market_model_uses_market_basis_not_moneyline():
+    """§11: neither model may inherit the other's feature list. The NNX
+    market margin/totals engines select ``tree_view(..., basis="market")``
+    and the served contract is ``study.market_feature_cols`` — a moneyline
+    read inside a market engine is a hard failure (7.6e closure)."""
+    for sport in ("nfl", "nhl", "nba"):
+        path = (REPO_ROOT / "sports" / sport
+                / "models" / "market" / "distributions.py")
+        src = path.read_text(encoding="utf-8")
+        assert 'basis="market"' in src, (
+            f"{sport}: market engine does not select the market basis")
+        # the moneyline contract list may not appear anywhere in the
+        # market engine module
+        assert "moneyline_feature_cols" not in src, (
+            f"{sport}: market engine references the moneyline feature list")
+
+
+def test_market_contract_builders_metadata_round_trip():
+    """§11/§13: every sport serves a versioned market contract whose
+    metadata passes the canonical features_metadata validator."""
+    import importlib
+    from core.contracts import require_features_metadata
+    for sport in ("mlb", "nfl", "nhl", "nba"):
+        mod = importlib.import_module(
+            f"sports.{sport}.features.registry")
+        contract = mod.build_market_feature_contract()
+        assert contract.sport == sport
+        assert contract.version == mod.MARKET_CONTRACT_VERSION
+        doc = contract.to_metadata_json(f"{sport}-market")
+        checked = require_features_metadata(sport, doc)
+        assert checked["n_features"] == len(mod.MARKET_FEATURE_COLS)

@@ -9,7 +9,7 @@ LEAKAGE CONTRACT (enforced and asserted):
 - Elo: iterated strictly chronologically; each row's ``elo_entering`` is
   the team's rating at kickoff (updated only after that game settles).
 - Trailing windowed / EWM statistics: computed per team over its own games
-  in chronological order, then ``shift(1)`` — the current and all future
+  in chronological order, then ``shift(1)`` â€” the current and all future
   games are excluded from a row's own value.
 - Team state (records, Elo) updates only after a game settles.
 - Venue/schedule facts (roof, division, stadium, kickoff hour) are static
@@ -17,7 +17,7 @@ LEAKAGE CONTRACT (enforced and asserted):
 
 DuckDB/Parquet discipline: the per-(game, team) play-by-play rollup and the
 team ladder are materialized as Parquet through DuckDB SQL so the full
-historical play-by-play never has to sit in RAM at once — the rollup is a
+historical play-by-play never has to sit in RAM at once â€” the rollup is a
 ``GROUP BY`` executed in-engine over the cached Parquet file.
 
 Model-family representations:
@@ -38,7 +38,7 @@ from sports.nfl.config.study_config import load_nfl_study
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Trailing-window configuration — sourced from study.yaml (never hard-coded
+# Trailing-window configuration â€” sourced from study.yaml (never hard-coded
 # drift): the loader pins them to the reference-frozen values.
 # ---------------------------------------------------------------------------
 
@@ -90,7 +90,7 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Elo — pre-game entering rating, updated only after a game settles
+# Elo â€” pre-game entering rating, updated only after a game settles
 # ---------------------------------------------------------------------------
 
 
@@ -122,7 +122,7 @@ def compute_elo(events: pd.DataFrame, elo_k: float, elo_prior: float,
 
 
 # ---------------------------------------------------------------------------
-# Trailing primitives — per-team, strictly-prior via shift(1)
+# Trailing primitives â€” per-team, strictly-prior via shift(1)
 # ---------------------------------------------------------------------------
 
 
@@ -143,7 +143,7 @@ def _trailing_ewm(srt: pd.DataFrame, value_col: str,
 
 
 # ---------------------------------------------------------------------------
-# PBP rollup — persisted as Parquet via DuckDB (bounded RAM)
+# PBP rollup â€” persisted as Parquet via DuckDB (bounded RAM)
 # ---------------------------------------------------------------------------
 
 
@@ -151,7 +151,7 @@ def pbp_team_agg(pbp: pd.DataFrame | None, out_path=None) -> pd.DataFrame:
     """Per-(game_id, posteam) play aggregates via DuckDB over Parquet.
 
     When ``out_path`` is given the play-by-play is first persisted to
-    Parquet and the GROUP BY runs inside DuckDB — the full historical PBP
+    Parquet and the GROUP BY runs inside DuckDB â€” the full historical PBP
     is never held in memory twice. Every column is a per-game sum/rate;
     the trailing shift downstream keeps them strictly-prior. Absent source
     columns degrade to NaN (never fabricated).
@@ -206,7 +206,7 @@ def pbp_team_agg(pbp: pd.DataFrame | None, out_path=None) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# The ladder — team state + trailing stats, one row per (game_id, team)
+# The ladder â€” team state + trailing stats, one row per (game_id, team)
 # ---------------------------------------------------------------------------
 
 
@@ -217,7 +217,7 @@ def team_stats_ladder(events: pd.DataFrame,
                       pace_window: int) -> pd.DataFrame:
     """Per-(game_id, team) point-in-time state: elo_entering, form_pts,
     win_pct, rest_days, ypp, ewm_net_pts, ewm_ypp, pace_plays_min,
-    short_rest — every trailing value strictly-prior (asserted)."""
+    short_rest â€” every trailing value strictly-prior (asserted)."""
     ev = events.copy()
     if team_game_agg is not None and len(team_game_agg):
         agg = team_game_agg.rename(columns={"total_yards": "tot_yd",
@@ -237,7 +237,7 @@ def team_stats_ladder(events: pd.DataFrame,
     if len(bad):
         raise AssertionError(
             "team_stats_ladder: team gameday not strictly increasing "
-            f"({len(bad)} rows) — trailing features could leak")
+            f"({len(bad)} rows) â€” trailing features could leak")
 
     srt["form_pts"] = _trailing_per_team(srt, "net_from_team", form_window)
     srt["win_pct"] = _trailing_per_team(srt, "team_win", winpct_window)
@@ -306,7 +306,7 @@ def _haversine_miles(lat1, lon1, lat2, lon2) -> np.ndarray:
 
 def _attach_venue_facts(df: pd.DataFrame, venue_csv) -> pd.DataFrame:
     """Attach travel_miles_diff / altitude_home from the committed stadiums
-    table. NaN when unknown — never fabricated."""
+    table. NaN when unknown â€” never fabricated."""
     try:
         from zoneinfo import ZoneInfo
     except ImportError:
@@ -503,33 +503,25 @@ def build_slate_features(schedule: pd.DataFrame, pbp: pd.DataFrame | None,
 # ---------------------------------------------------------------------------
 
 
-def served_diff_columns(study=None) -> list[str]:
-    study = study or _cfg()
-    return list(study.moneyline_feature_cols)
 
-
-def linear_view(df: pd.DataFrame, study=None) -> pd.DataFrame:
-    """Difference-oriented linear/MLP matrix (+ is_home anchor)."""
-    study = study or _cfg()
-    cols = [c for c in list(study.moneyline_feature_cols) + ["is_home"]
-            if c in df.columns]
-    return df.reindex(columns=cols).astype(float)
-
-
-def tree_view(df: pd.DataFrame, study=None) -> pd.DataFrame:
+def tree_view(df: pd.DataFrame, study=None, *,
+              basis: str = "moneyline") -> pd.DataFrame:
     """Tree-family matrix: differences + raw home/away side values.
 
-    Basis is the MONEYLINE contract (``study.moneyline_feature_cols``): the
-    served feature pool IS the moneyline view. The market margin/totals model
-    (``sports/nfl/distributions.py::ScoreRegressor``) consumes this same view
-    and is therefore MONEYLINE-BASIS BY DECLARATION for Phase 7.5e-B; its
-    basis is audited and explicitly rebound, if required, in Phase 7.5e-C
-    together with the market contract builders. Do not add a second basis
-    here without that decision.
+    Basis selects the contract the served pool follows (§11): the
+    MONEYLINE contract (default — the moneyline trainer’s view) or the
+    MARKET contract (``basis="market"`` — the market margin/totals model’s
+    view since r7; the two bases are structurally independent, though
+    currently value-identical tuples).
     """
     study = study or _cfg()
-    diff_cols = [c for c in study.moneyline_feature_cols
-                 if c in df.columns]
+    if basis not in ("moneyline", "market"):
+        raise ValueError(
+            f"tree_view basis must be 'moneyline' or 'market', "
+            f"got {basis!r}")
+    contract = (study.moneyline_feature_cols if basis == "moneyline"
+                else study.market_feature_cols)
+    diff_cols = [c for c in contract if c in df.columns]
     side_cols = [c for c in ("elo_home", "elo_away", "win_pct_home",
                              "win_pct_away", "ewm_net_pts_home",
                              "ewm_net_pts_away", "ewm_ypp_home",

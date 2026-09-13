@@ -6,20 +6,20 @@ LEAKAGE CONTRACT (enforced and asserted):
 - Elo: iterated strictly chronologically; each row's ``elo_entering`` is
   the team's rating at puck drop (updated only after that game settles).
 - Trailing windowed / EWM statistics: computed per team over its own
-  decided games in chronological order, then ``shift(1)`` — the current
+  decided games in chronological order, then ``shift(1)`` â€” the current
   and all future games are excluded from a row's own value.
 - Team state (records, Elo) updates only after a game settles.
 - Venue/schedule facts (division, prime-time hour, venue coordinates) are
   static pre-game facts.
 
-NHL-specific derivations (schedule-derivable by design — see study.yaml):
+NHL-specific derivations (schedule-derivable by design â€” see study.yaml):
 
-- ``b2b_home`` / ``b2b_away``: back-to-back flag — the team played the
+- ``b2b_home`` / ``b2b_away``: back-to-back flag â€” the team played the
   previous calendar day (rest_days == 1).
 - ``ewm_net_goals_diff``: EWM net goals/game difference (the hockey
   analogue of the NFL's ewm_net_pts_diff).
-- ``travel_miles_diff``: haversine(away_arena → venue) −
-  haversine(home_arena → venue) from the committed NHL arena table.
+- ``travel_miles_diff``: haversine(away_arena â†’ venue) âˆ’
+  haversine(home_arena â†’ venue) from the committed NHL arena table.
 
 The ladder's leakage gate asserts chronological monotonicity per team
 (the same gate as NFL Phase 3 / MLB Phase 2).
@@ -57,7 +57,7 @@ def _cfg():
 def team_events(games: pd.DataFrame) -> pd.DataFrame:
     """One row per (team, game) with team-perspective scores.
 
-    Ordering key: ``_event_ts`` — the game's instant (``start_time_utc``,
+    Ordering key: ``_event_ts`` â€” the game's instant (``start_time_utc``,
     a static pre-game fact) falling back to the calendar ``game_date``.
     The instant (not the calendar date) is the correct point-in-time
     ordering key: real NHL back-to-backs that cross a local midnight
@@ -102,7 +102,7 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Elo — pre-game entering rating, updated only after a game settles
+# Elo â€” pre-game entering rating, updated only after a game settles
 # ---------------------------------------------------------------------------
 
 
@@ -134,7 +134,7 @@ def compute_elo(events: pd.DataFrame, elo_k: float, elo_prior: float,
 
 
 # ---------------------------------------------------------------------------
-# Trailing primitives — per-team, strictly-prior via shift(1)
+# Trailing primitives â€” per-team, strictly-prior via shift(1)
 # ---------------------------------------------------------------------------
 
 
@@ -155,7 +155,7 @@ def _trailing_ewm(srt: pd.DataFrame, value_col: str,
 
 
 # ---------------------------------------------------------------------------
-# The ladder — team state + trailing stats, one row per (game_id, team)
+# The ladder â€” team state + trailing stats, one row per (game_id, team)
 # ---------------------------------------------------------------------------
 
 
@@ -163,14 +163,14 @@ def team_stats_ladder(events: pd.DataFrame, *, form_window: int,
                       winpct_window: int, ewm_halflife: float
                       ) -> pd.DataFrame:
     """Per-(game_id, team) point-in-time state: elo_entering, form_gls,
-    win_pct, rest_days, b2b, ewm_net_goals — every trailing value
+    win_pct, rest_days, b2b, ewm_net_goals â€” every trailing value
     strictly-prior (asserted)."""
     srt = events.sort_values(
         ["team", "_event_ts", "game_date", "game_id"]).reset_index(drop=True)
 
     # LEAKAGE GATE: a team's game instants strictly increasing. Ordered by
     # the game instant (start_time_utc; game_date fallback), this holds on
-    # REAL NHL data — same-calendar-day repeats that are genuinely distinct
+    # REAL NHL data â€” same-calendar-day repeats that are genuinely distinct
     # instants (local-midnight-crossing back-to-backs) order correctly,
     # while a true same-instant repeat for one team (data corruption) still
     # fails loudly ("trailing features could leak"), as in NFL Phase 3.
@@ -179,7 +179,7 @@ def team_stats_ladder(events: pd.DataFrame, *, form_window: int,
     if len(bad):
         raise AssertionError(
             "team_stats_ladder: team game_date not strictly increasing "
-            f"({len(bad)} rows) — trailing features could leak")
+            f"({len(bad)} rows) â€” trailing features could leak")
 
     srt["form_gls"] = _trailing_per_team(srt, "net_from_team", form_window)
     srt["win_pct"] = _trailing_per_team(srt, "team_win", winpct_window)
@@ -215,7 +215,7 @@ def _per_side(ladder: pd.DataFrame, game_ids: pd.Index,
 def _load_arena_table(path=None) -> pd.DataFrame:
     p = Path(path) if path is not None else ARENAS_CSV
     if not p.is_file():
-        logger.warning("NHL arena table missing at %s — travel features "
+        logger.warning("NHL arena table missing at %s â€” travel features "
                        "will be unavailable (never fabricated)", p)
         return pd.DataFrame(columns=["arena", "teams", "lat", "lon"])
     return pd.read_csv(p)
@@ -235,7 +235,7 @@ def _haversine_miles(lat1, lon1, lat2, lon2) -> np.ndarray:
 
 def _attach_venue_facts(df: pd.DataFrame, arena_csv=None) -> pd.DataFrame:
     """Attach travel_miles_diff from the committed arena table. NaN when
-    unknown — never fabricated."""
+    unknown â€” never fabricated."""
     arena = _load_arena_table(arena_csv)
     facts: dict[str, dict] = {}
     team_home: dict[str, str] = {}
@@ -270,7 +270,7 @@ def _attach_venue_facts(df: pd.DataFrame, arena_csv=None) -> pd.DataFrame:
                            _team_fact("home_team", "lon"),
                            _game_fact("lat"), _game_fact("lon")))
 
-    # Division flag: committed team→division mapping.
+    # Division flag: committed teamâ†’division mapping.
     divisions = _division_map()
     home_div = df["home_team"].map(divisions)
     away_div = df["away_team"].map(divisions)
@@ -371,7 +371,7 @@ def build_game_features(games: pd.DataFrame) -> pd.DataFrame:
     df = _apply_diffs(df, ladder)
 
     # Full-game targets (kept beside features for OOF assembly; never
-    # model inputs). NOTE: a regulation tie is NOT a full-game tie — the
+    # model inputs). NOTE: a regulation tie is NOT a full-game tie â€” the
     # NHL resolves every full game via OT/SO, so home_win is 0/1 and the
     # regulation 3-way market is a separate contract (adapter).
     df["margin"] = (df["home_score"].astype(float)
@@ -421,33 +421,25 @@ def build_slate_features(schedule: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def served_diff_columns(study=None) -> list[str]:
-    study = study or _cfg()
-    return list(study.moneyline_feature_cols)
 
-
-def linear_view(df: pd.DataFrame, study=None) -> pd.DataFrame:
-    """Difference-oriented linear/MLP matrix (+ is_home anchor)."""
-    study = study or _cfg()
-    cols = [c for c in list(study.moneyline_feature_cols) + ["is_home"]
-            if c in df.columns]
-    return df.reindex(columns=cols).astype(float)
-
-
-def tree_view(df: pd.DataFrame, study=None) -> pd.DataFrame:
+def tree_view(df: pd.DataFrame, study=None, *,
+              basis: str = "moneyline") -> pd.DataFrame:
     """Tree-family matrix: differences + raw home/away side values.
 
-    Basis is the MONEYLINE contract (``study.moneyline_feature_cols``): the
-    served feature pool IS the moneyline view. The market margin/totals model
-    (``sports/nhl/distributions.py::ScoreRegressor``) consumes this same view
-    and is therefore MONEYLINE-BASIS BY DECLARATION for Phase 7.5e-B; its
-    basis is audited and explicitly rebound, if required, in Phase 7.5e-C
-    together with the market contract builders. Do not add a second basis
-    here without that decision.
+    Basis selects the contract the served pool follows (§11): the
+    MONEYLINE contract (default — the moneyline trainer’s view) or the
+    MARKET contract (``basis="market"`` — the market margin/totals model’s
+    view since r7; the two bases are structurally independent, though
+    currently value-identical tuples).
     """
     study = study or _cfg()
-    diff_cols = [c for c in study.moneyline_feature_cols
-                 if c in df.columns]
+    if basis not in ("moneyline", "market"):
+        raise ValueError(
+            f"tree_view basis must be 'moneyline' or 'market', "
+            f"got {basis!r}")
+    contract = (study.moneyline_feature_cols if basis == "moneyline"
+                else study.market_feature_cols)
+    diff_cols = [c for c in contract if c in df.columns]
     side_cols = [c for c in ("elo_home", "elo_away", "win_pct_home",
                              "win_pct_away", "ewm_net_goals_home",
                              "ewm_net_goals_away", "rest_days_home",

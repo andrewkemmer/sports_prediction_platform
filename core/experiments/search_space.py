@@ -413,6 +413,84 @@ class ModelScope:
             raise ValueError(f"{self.sport}/{self.model}: empty incumbent list")
 
 
+# ---------------------------------------------------------------------------
+# §15 training-horizon policies: the BOUNDED, DECLARED candidate set.
+# The optimizer may compare only these named policies (never an open
+# search over every calendar start / window length); the selected policy
+# is locked into the model contract as training_mode + parameters.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TrainingPolicy:
+    """One declared training-horizon policy (§15).
+
+    ``mode``: ``expanding`` (from a declared season start) or ``rolling``
+    (the last K seasons). ``start_season`` pins the expanding origin;
+    ``rolling_seasons`` pins K for rolling. ``decay`` optionally names a
+    time-decay weighting for full-history expanding (``"none"`` = no
+    decay). A policy is immutable and hashable — it can be locked into
+    a production contract verbatim.
+    """
+
+    mode: str                        # "expanding" | "rolling"
+    start_season: int | None = None  # expanding origin season
+    rolling_seasons: int | None = None
+    decay: str = "none"              # "none" | "exponential" (reserved)
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("expanding", "rolling"):
+            raise ValueError(
+                f"training policy mode must be 'expanding' or 'rolling', "
+                f"got {self.mode!r}")
+        if self.mode == "expanding" and self.start_season is None:
+            raise ValueError("expanding policy requires start_season")
+        if self.mode == "rolling":
+            if not self.rolling_seasons or self.rolling_seasons < 1:
+                raise ValueError(
+                    "rolling policy requires rolling_seasons >= 1")
+        if self.decay not in ("none", "exponential"):
+            raise ValueError(
+                f"training policy decay must be 'none' or 'exponential', "
+                f"got {self.decay!r}")
+
+    @property
+    def name(self) -> str:
+        if self.mode == "expanding":
+            base = f"expanding_from_{self.start_season}"
+        else:
+            base = f"rolling_last_{self.rolling_seasons}_seasons"
+        return base if self.decay == "none" else f"{base}_{self.decay}"
+
+
+def training_policy_candidates(
+        earliest_season: int, latest_season: int,
+        *, max_policies: int = 10) -> tuple[TrainingPolicy, ...]:
+    """The bounded §15 candidate set for one optimization run.
+
+    Declares exactly: expanding from the earliest valid season, expanding
+    from a recent-regime season (latest − 4), and rolling windows of the
+    2/3/5/8-season forms that fit the data span. Never every calendar
+    start — at most ``max_policies`` candidates, deterministic order.
+    """
+    if latest_season < earliest_season:
+        raise ValueError(
+            f"latest_season {latest_season} < earliest {earliest_season}")
+    span = latest_season - earliest_season + 1
+    out: list[TrainingPolicy] = [
+        TrainingPolicy("expanding", start_season=earliest_season)]
+    if span > 5:
+        out.append(TrainingPolicy(
+            "expanding", start_season=latest_season - 4))
+    for k in (2, 3, 5, 8):
+        if k <= span and len(out) < max_policies:
+            out.append(TrainingPolicy("rolling", rolling_seasons=k))
+    if span >= 10 and len(out) < max_policies:
+        out.append(TrainingPolicy(
+            "expanding", start_season=earliest_season,
+            decay="exponential"))
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class OptimizationConfig:
     """A declarative optimization run configuration."""
