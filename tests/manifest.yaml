@@ -206,6 +206,15 @@ files:
       runners.
     topics: [point_in_time_correctness, leakage_prevention,
              feature_contract_validation]
+  - path: tests/test_cli_sync.py
+    class: production
+    description: >
+      experiments CLI + manual sync (r8, §15/§16/§2.1): the §15
+      allowlisted experiments tree, the generic config-driven runner
+      (source-inspection pins — tests never import experiments/), §15
+      bounded policy resolution, and the manual contract-only sync
+      (dry-run by default, structural data exclusion, never automatic).
+    topics: [imports_and_syntax, leakage_prevention]
   - path: tests/test_config_rules.py
     class: production
     description: >

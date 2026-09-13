@@ -1,0 +1,16 @@
+# MLB search configuration (§16 sample: bounded, declarative, reviewed).
+#
+# Every experiment run is one of these files — never a bespoke program.
+# The runner prints results to the log; nothing here promotes a contract.
+bounds:
+  max_candidate_features: 40
+  horizon_choices: [3, 5, 8, 10, 12, 15]
+  model_names: [xgboost, lightgbm, logistic, randomforest, mlp]
+  interaction_order: 2
+
+gates:
+  coverage_min: 0.90
+  logloss_tolerance: 0.005
+  auc_tolerance: 0.005
+  ece_tolerance: 0.010
+  stability_max_delta: 0.020
